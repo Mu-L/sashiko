@@ -17,5 +17,7 @@ host = "127.0.0.1"
 port = 8080
 
 [ingestion]
-mode = "nntp"
-# archive_path = "archives/linux-kernel"
+mode = "local_archive"
+
+[ingestion.archive]
+path = "archives/lkml/18.git"

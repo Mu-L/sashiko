@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use tokio::process::Command;
@@ -6,9 +6,9 @@ use tracing::{info, warn};
 
 #[allow(dead_code)]
 pub struct GitWorktree {
-    #[allow(dead_code)]
     pub dir: TempDir,
     pub path: PathBuf,
+    pub repo_path: PathBuf,
 }
 
 impl GitWorktree {
@@ -19,7 +19,6 @@ impl GitWorktree {
 
         info!("Creating worktree at {:?}", path);
 
-        // git worktree add --detach <path> <commit>
         let output = Command::new("git")
             .current_dir(repo_path)
             .arg("worktree")
@@ -40,6 +39,7 @@ impl GitWorktree {
         Ok(Self {
             dir: temp_dir,
             path,
+            repo_path: repo_path.to_path_buf(),
         })
     }
 
@@ -47,8 +47,6 @@ impl GitWorktree {
     pub async fn apply_patch(&self, patch_content: &str) -> Result<()> {
         info!("Applying patch in {:?}", self.path);
 
-        // git am
-        // We pipe content to stdin
         let mut child = Command::new("git")
             .current_dir(&self.path)
             .arg("am")
@@ -66,7 +64,6 @@ impl GitWorktree {
         let output = child.wait_with_output().await?;
 
         if !output.status.success() {
-            // Abort am if it failed
             let _ = Command::new("git")
                 .current_dir(&self.path)
                 .arg("am")
@@ -82,17 +79,67 @@ impl GitWorktree {
 
         Ok(())
     }
+
+    #[allow(dead_code)]
+    pub async fn remove(self) -> Result<()> {
+        info!("Removing worktree at {:?}", self.path);
+        let output = Command::new("git")
+            .current_dir(&self.repo_path)
+            .arg("worktree")
+            .arg("remove")
+            .arg("-f")
+            .arg(&self.path)
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Err(anyhow!(
+                "Failed to remove worktree: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[allow(dead_code)]
+pub async fn prune_worktrees(repo_path: &Path) -> Result<()> {
+    info!("Pruning git worktrees in {:?}", repo_path);
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .arg("worktree")
+        .arg("prune")
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        return Err(anyhow!(
+            "git worktree prune failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub async fn check_disk_usage(path: &Path) -> Result<String> {
+    let output = Command::new("du")
+        .arg("-sh")
+        .arg(path)
+        .output()
+        .await?;
+    
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(anyhow!("Failed to check disk usage: {}", String::from_utf8_lossy(&output.stderr)))
+    }
 }
 
 impl Drop for GitWorktree {
     fn drop(&mut self) {
-        // Pruning worktrees is usually manual or implicit when dir is removed.
-        // But 'git worktree prune' is needed to update the main repo's index of worktrees.
-        // We can't easily run async code in Drop.
-        // In a real system, we'd have a separate garbage collector or use `git worktree remove` explicitly before drop.
-        // For now, we rely on `TempDir` deleting the directory, and `git worktree prune` can be run periodically.
         warn!(
-            "Dropping worktree at {:?}. Remember to run 'git worktree prune'",
+            "Dropping worktree at {:?}. Use explicit .remove() for clean git state.",
             self.path
         );
     }

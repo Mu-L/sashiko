@@ -3,9 +3,10 @@ use crate::events::Event;
 use crate::nntp::NntpClient;
 use crate::settings::{IngestionMode, Settings};
 use anyhow::{anyhow, Result};
+use tokio::process::Command;
 use tokio::sync::mpsc::Sender;
 use tokio::time::{Duration, sleep};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub struct Ingestor {
     settings: Settings,
@@ -74,6 +75,7 @@ impl Ingestor {
                                 group: group_name.clone(),
                                 article_id: next_id.to_string(),
                                 content: lines,
+                                raw: None,
                             })
                             .await?;
                         self.db.update_last_article_num(group_name, next_id).await?;
@@ -96,11 +98,82 @@ impl Ingestor {
         
         info!("Starting Local Archive Ingestor from {:?}", archive_settings.path);
 
-        // Placeholder for local archive ingestion logic
-        // 1. Walk the directory or open git repo
-        // 2. Parse emails
-        // 3. Send events
-        
+        // Get list of all blob hashes in the repo (each blob is an email)
+        let output = Command::new("git")
+            .arg("-c")
+            .arg("safe.bareRepository=all")
+            .current_dir(&archive_settings.path)
+            .arg("rev-list")
+            .arg("--all")
+            .arg("--objects")
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Err(anyhow!("Failed to list git objects: {}", String::from_utf8_lossy(&output.stderr)));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut count = 0;
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.is_empty() { continue; }
+            let hash = parts[0];
+
+            // Check if it's a blob
+            let cat_type = Command::new("git")
+                .arg("-c")
+                .arg("safe.bareRepository=all")
+                .current_dir(&archive_settings.path)
+                .arg("cat-file")
+                .arg("-t")
+                .arg(hash)
+                .output()
+                .await?;
+            
+            if !cat_type.status.success() || String::from_utf8_lossy(&cat_type.stdout).trim() != "blob" {
+                continue;
+            }
+
+            // Extract the blob content
+            let content_output = Command::new("git")
+                .arg("-c")
+                .arg("safe.bareRepository=all")
+                .current_dir(&archive_settings.path)
+                .arg("cat-file")
+                .arg("-p")
+                .arg(hash)
+                .output()
+                .await?;
+
+            if content_output.status.success() {
+                let raw = content_output.stdout;
+                // Convert raw to lines for the 'content' field (legacy)
+                let content_str = String::from_utf8_lossy(&raw);
+                let lines: Vec<String> = content_str.lines().map(|s| s.to_string()).collect();
+
+                self.sender.send(Event::ArticleFetched {
+                    group: "local-archive".to_string(),
+                    article_id: hash.to_string(),
+                    content: lines,
+                    raw: Some(raw),
+                }).await?;
+                
+                count += 1;
+                if count % 100 == 0 {
+                    info!("Processed {} emails from archive", count);
+                }
+                
+                // For testing, stop after 1000 emails
+                if count >= 100 {
+                    break;
+                }
+            } else {
+                warn!("Failed to cat blob {}: {}", hash, String::from_utf8_lossy(&content_output.stderr));
+            }
+        }
+
+        info!("Local archive ingestion completed. Total: {}", count);
         Ok(())
     }
 }

@@ -5,5 +5,6 @@ pub enum Event {
         group: String,
         article_id: String,
         content: Vec<String>,
+        raw: Option<Vec<u8>>,
     },
 }
