@@ -1,7 +1,9 @@
+mod db;
 mod ingestor;
 mod nntp;
 mod settings;
 
+use db::Database;
 use ingestor::Ingestor;
 use settings::Settings;
 use tracing::{error, info};
@@ -27,8 +29,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Settings: {:?}", settings);
 
+    // Initialize Database
+    let db = Database::new(settings.database).await?;
+    db.migrate().await?;
+
     // Start Ingestor
-    let ingestor = Ingestor::new(settings.nntp);
+    let ingestor = Ingestor::new(settings.nntp, db);
     tokio::spawn(async move {
         if let Err(e) = ingestor.run().await {
             error!("Ingestor fatal error: {}", e);

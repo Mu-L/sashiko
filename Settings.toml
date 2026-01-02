@@ -1,6 +1,6 @@
 [database]
-url = "libsql://your-database.turso.io"
-token = "your-auth-token"
+url = "sashiko.db"
+token = ""
 
 [nntp]
 server = "nntp.lore.kernel.org"

@@ -1,3 +1,4 @@
+use crate::db::Database;
 use crate::nntp::NntpClient;
 use crate::settings::NntpSettings;
 use anyhow::Result;
@@ -6,11 +7,12 @@ use tracing::{error, info};
 
 pub struct Ingestor {
     settings: NntpSettings,
+    db: Database,
 }
 
 impl Ingestor {
-    pub fn new(settings: NntpSettings) -> Self {
-        Self { settings }
+    pub fn new(settings: NntpSettings, db: Database) -> Self {
+        Self { settings, db }
     }
 
     pub async fn run(&self) -> Result<()> {
