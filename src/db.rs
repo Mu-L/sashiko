@@ -239,17 +239,43 @@ impl Database {
             
             // Matching logic:
             // 1. Author must match
-            // 2. Time must be close (within 24 hours / 86400s) - Increased to handle slow series
+            // 2. Time must be close (within 24 hours / 86400s)
             // 3. Total parts must match
             // 4. Versions must match OR one is unspecified (None)
-            //    - None matches Some(6) (Implicit v1/Unknown merges with Explicit v6)
-            //    - Some(5) != Some(6) (Explicit mismatch)
+            // 5. For singletons (total=1), Subject must match (fuzzy) to avoid merging unrelated patches
+            //    unless one is a cover letter (index=0) and other is patch (index=1) - but singletons don't have covers usually.
+            //    Actually, [PATCH] A and [PATCH] B should not merge.
+            //    [PATCH] A and [PATCH] A (resend) should merge.
+            //    So for total_parts=1, we require subject equality (ignoring prefixes handled by parser, but we have raw subjects here).
+            //    Let's check if subjects are "similar" or just enforce strictness for total=1.
+            
             let versions_compatible = match (version, existing_version) {
                 (Some(a), Some(b)) => a == b,
-                _ => true, // One or both are None -> Compatible
+                _ => true, 
             };
 
-            if existing_author == author && (date - existing_date).abs() < 86400 && versions_compatible && total_parts == existing_total {
+            let is_singleton = total_parts == 1;
+            // For singletons, we require the subject to be somewhat similar to avoid merging unrelated patches.
+            // Simple check: strict equality of the non-prefix part? 
+            // Or just: if total=1, don't merge if received_parts >= 1 (already full)? 
+            // But what if it's a resend?
+            // Safer: For total=1, require subject match.
+            // But subjects might differ slightly "Fix A" vs "Fix A v2".
+            // We stripped versions.
+            // Let's rely on: if total=1, we match ONLY if subject is similar.
+            // Since we don't have fuzzy match handy, let's use:
+            // If total=1, assume disjoint unless subjects are identical (simplified).
+            let subject_match = if is_singleton {
+                subject == existing_subject
+            } else {
+                true // For series, we rely on 1/N, 2/N pattern and author/time.
+            };
+
+            if existing_author == author 
+                && (date - existing_date).abs() < 86400 
+                && versions_compatible 
+                && total_parts == existing_total
+                && subject_match {
                 matches.push((id, existing_subject_index));
             }
         }
@@ -695,6 +721,27 @@ mod tests {
         // With strict checking, this might fail (assert_eq will panic if not merged).
         // If it fails, we need to relax the check in `create_patchset`.
         assert_eq!(ps_cover, ps_p1, "Should merge explicit v6 cover with implicit v1 patch if context matches");
+    }
+
+    #[tokio::test]
+    async fn test_unrelated_singletons_no_merge() {
+        let db = setup_db().await;
+        let thread_id = db.create_thread("root_single", "Singletons", 60000).await.unwrap();
+        let author = "Author S <s@example.com>";
+
+        // Patch A
+        db.create_message("msg_a", thread_id, None, author, "[PATCH] Fix A", 60000, "").await.unwrap();
+        let ps_a = db.create_patchset(
+            thread_id, None, "[PATCH] Fix A", author, 60000, 1, 1, "", "", None, None, 1
+        ).await.unwrap().unwrap();
+
+        // Patch B (Close time, same author, implicit version, total=1)
+        db.create_message("msg_b", thread_id, None, author, "[PATCH] Fix B", 60005, "").await.unwrap();
+        let ps_b = db.create_patchset(
+            thread_id, None, "[PATCH] Fix B", author, 60005, 1, 1, "", "", None, None, 1
+        ).await.unwrap().unwrap();
+
+        assert_ne!(ps_a, ps_b, "Should NOT merge unrelated singletons even if author/time match");
     }
 
     #[tokio::test]
