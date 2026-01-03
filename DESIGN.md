@@ -29,6 +29,7 @@ Sashiko follows a modular, single-node architecture designed for high concurrenc
 *   **Design Philosophy**: Simple and minimalistic, adhering to the "kernel.org vibes" (fast, text-heavy, no-nonsense).
 *   **Technology Stack**: Standard HTML5, CSS, and Vanilla JavaScript. Served as static files by **Nginx**, which also acts as a reverse proxy for the Rust backend.
 *   **Key Features**:
+    *   **Patchset List**: The main view displays all tracked patchsets, searchable and filterable by status, author, or subsystem.
     *   **Interactive Review Management**: Button to re-trigger AI reviews for specific patchsets.
     *   **Manual Override**: Interface to manually specify or correct the `git` baseline (repo URL or commit hash) if automated detection fails.
     *   **Live Status**: Visual indication of the patchset's position in the processing pipeline.
@@ -39,11 +40,45 @@ Sashiko follows a modular, single-node architecture designed for high concurrenc
 
 ## 3. Data Schema (libSQL)
 
+The data model is built around four core entities: **Messages**, **Threads**, **Patches**, and **Patchsets**.
+
+*   **Message**: Represents a single email received via NNTP.
+*   **Thread**: A conversation consisting of multiple messages (linked via `In-Reply-To` and `References`).
+*   **Patch**: A code change (diff) contained within a specific message.
+*   **Patchset**: A logical collection of patches (e.g., a series 1/N, 2/N) intended to be applied together.
+
 ### 3.1. Tables
 
 *   **`mailing_lists`**: `id`, `name`, `nntp_group`, `last_article_num`.
-*   **`patchsets`**: `id`, `message_id`, `subject`, `author`, `date`, `total_parts`, `received_parts`, `status` (Pending, Assembled, Applied, Failed, Reviewed).
-*   **`patches`**: `id`, `patchset_id`, `message_id`, `part_index`, `body` (cached), `diff` (cached).
+*   **`threads`**:
+    *   `id`: Primary Key.
+    *   `root_message_id`: The Message-ID of the thread starter.
+    *   `subject`: The subject of the root message.
+    *   `last_updated`: Timestamp of the most recent message in the thread.
+*   **`messages`**:
+    *   `id`: Primary Key.
+    *   `message_id`: String, Unique (from email headers).
+    *   `thread_id`: Foreign Key to `threads`.
+    *   `in_reply_to`: Nullable, Message-ID of the parent message.
+    *   `author`: Sender's name/email.
+    *   `subject`: Email subject.
+    *   `date`: Timestamp.
+    *   `body`: The full text content.
+*   **`patchsets`**:
+    *   `id`: Primary Key.
+    *   `thread_id`: Foreign Key to `threads` (A patchset typically corresponds to a thread).
+    *   `cover_letter_message_id`: Nullable, FK to `messages` (if a [PATCH 0/N] exists).
+    *   `subject`: Title of the series.
+    *   `status`: Pending, Assembled, Applied, Failed, Reviewed.
+    *   `total_parts`: Expected number of patches.
+    *   `received_parts`: Count of patches currently ingested.
+    *   `baseline_id`: Foreign Key to `baselines`.
+*   **`patches`**:
+    *   `id`: Primary Key.
+    *   `patchset_id`: Foreign Key to `patchsets`.
+    *   `message_id`: Foreign Key to `messages` (The source message containing this patch).
+    *   `part_index`: The index in the series (e.g., 1 for [PATCH 1/3]).
+    *   `diff`: The extracted diff content.
 *   **`baselines`**: `id`, `repo_url`, `branch`, `last_known_commit`.
 *   **`reviews`**: `id`, `patchset_id`, `model_name`, `summary`, `created_at`.
 *   **`comments`**: `id`, `review_id`, `file_path`, `line_number`, `content`, `severity` (Info, Warning, Error).

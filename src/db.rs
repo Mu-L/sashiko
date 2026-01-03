@@ -11,11 +11,12 @@ pub struct Database {
 #[derive(Debug, Serialize)]
 pub struct PatchsetRow {
     pub id: i64,
-    pub message_id: String,
     pub subject: Option<String>,
+    pub status: Option<String>,
+    pub thread_id: Option<i64>,
     pub author: Option<String>,
     pub date: Option<i64>,
-    pub status: Option<String>,
+    pub message_id: Option<String>,
 }
 
 impl Database {
@@ -38,44 +39,6 @@ impl Database {
     pub async fn migrate(&self) -> Result<()> {
         let schema = include_str!("schema.sql");
         self.conn.execute_batch(schema).await?;
-
-        // Idempotent migrations
-        let _ = self
-            .conn
-            .execute(
-                "ALTER TABLE patchsets ADD COLUMN parser_version INTEGER DEFAULT 0",
-                libsql::params![],
-            )
-            .await;
-        let _ = self
-            .conn
-            .execute(
-                "ALTER TABLE patchsets ADD COLUMN to_recipients TEXT",
-                libsql::params![],
-            )
-            .await;
-        let _ = self
-            .conn
-            .execute(
-                "ALTER TABLE patchsets ADD COLUMN cc_recipients TEXT",
-                libsql::params![],
-            )
-            .await;
-        let _ = self
-            .conn
-            .execute(
-                "ALTER TABLE patchsets ADD COLUMN baseline_id INTEGER",
-                libsql::params![],
-            )
-            .await;
-        let _ = self
-            .conn
-            .execute(
-                "ALTER TABLE reviews ADD COLUMN interaction_id TEXT",
-                libsql::params![],
-            )
-            .await;
-
         info!("Database schema applied");
         Ok(())
     }
@@ -121,7 +84,7 @@ impl Database {
         let mut rows = self
             .conn
             .query(
-                "SELECT parser_version FROM patchsets WHERE message_id = ?",
+                "SELECT parser_version FROM patchsets WHERE cover_letter_message_id = ?",
                 libsql::params![message_id],
             )
             .await?;
@@ -134,14 +97,52 @@ impl Database {
         }
     }
 
+    pub async fn create_thread(&self, root_message_id: &str, subject: &str, date: i64) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO threads (root_message_id, subject, last_updated) VALUES (?, ?, ?)",
+            libsql::params![root_message_id, subject, date],
+        ).await?;
+        
+        let mut rows = self.conn.query("SELECT last_insert_rowid()", ()).await?;
+        if let Ok(Some(row)) = rows.next().await {
+            Ok(row.get(0)?)
+        } else {
+             Err(anyhow::anyhow!("Failed to get thread ID"))
+        }
+    }
+
+    pub async fn get_thread_id_by_root(&self, root_message_id: &str) -> Result<Option<i64>> {
+         let mut rows = self.conn.query("SELECT id FROM threads WHERE root_message_id = ?", libsql::params![root_message_id]).await?;
+        if let Ok(Some(row)) = rows.next().await {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+    
+    pub async fn get_thread_id_for_message(&self, message_id: &str) -> Result<Option<i64>> {
+         let mut rows = self.conn.query("SELECT thread_id FROM messages WHERE message_id = ?", libsql::params![message_id]).await?;
+        if let Ok(Some(row)) = rows.next().await {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn create_message(&self, message_id: &str, thread_id: i64, in_reply_to: Option<&str>, author: &str, subject: &str, date: i64, body: &str) -> Result<()> {
+         self.conn.execute(
+            "INSERT OR IGNORE INTO messages (message_id, thread_id, in_reply_to, author, subject, date, body) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            libsql::params![message_id, thread_id, in_reply_to, author, subject, date, body],
+        ).await?;
+        Ok(())
+    }
+
     pub async fn create_baseline(
         &self,
         repo_url: Option<&str>,
         branch: Option<&str>,
         commit: Option<&str>,
     ) -> Result<i64> {
-        // Simple deduplication: if exactly same, return id.
-        // But for simplicity, we just insert.
         self.conn
             .execute(
                 "INSERT INTO baselines (repo_url, branch, last_known_commit) VALUES (?, ?, ?)",
@@ -163,7 +164,8 @@ impl Database {
     #[allow(clippy::too_many_arguments)]
     pub async fn create_patchset(
         &self,
-        message_id: &str,
+        thread_id: i64,
+        cover_letter_message_id: Option<&str>,
         subject: &str,
         author: &str,
         date: i64,
@@ -173,27 +175,29 @@ impl Database {
         cc: &str,
         baseline_id: Option<i64>,
     ) -> Result<i64> {
+         let mut rows = self.conn.query("SELECT id FROM patchsets WHERE thread_id = ?", libsql::params![thread_id]).await?;
+        if let Ok(Some(row)) = rows.next().await {
+            let id: i64 = row.get(0)?;
+             self.conn.execute(
+                "UPDATE patchsets SET subject = ?, author = ?, date = ?, total_parts = ?, parser_version = ?, to_recipients = ?, cc_recipients = ?, baseline_id = ? WHERE id = ?",
+                libsql::params![subject, author, date, total_parts, parser_version, to, cc, baseline_id, id],
+            ).await?;
+            return Ok(id);
+        }
+        
         self.conn
             .execute(
-                "INSERT INTO patchsets (message_id, subject, author, date, total_parts, received_parts, status, parser_version, to_recipients, cc_recipients, baseline_id) 
-                 VALUES (?, ?, ?, ?, ?, 1, 'Pending', ?, ?, ?, ?) 
-                 ON CONFLICT(message_id) DO UPDATE SET 
-                    author = excluded.author,
-                    subject = excluded.subject,
-                    date = excluded.date,
-                    parser_version = excluded.parser_version,
-                    to_recipients = excluded.to_recipients,
-                    cc_recipients = excluded.cc_recipients,
-                    baseline_id = excluded.baseline_id",
-                libsql::params![message_id, subject, author, date, total_parts, parser_version, to, cc, baseline_id],
+                "INSERT INTO patchsets (thread_id, cover_letter_message_id, subject, author, date, total_parts, received_parts, status, parser_version, to_recipients, cc_recipients, baseline_id) 
+                 VALUES (?, ?, ?, ?, ?, ?, 0, 'Pending', ?, ?, ?, ?)",
+                libsql::params![thread_id, cover_letter_message_id, subject, author, date, total_parts, parser_version, to, cc, baseline_id],
             )
             .await?;
 
         let mut rows = self
             .conn
             .query(
-                "SELECT id FROM patchsets WHERE message_id = ?",
-                libsql::params![message_id],
+                "SELECT last_insert_rowid()",
+                libsql::params![],
             )
             .await?;
         if let Ok(Some(row)) = rows.next().await {
@@ -211,19 +215,23 @@ impl Database {
         patchset_id: i64,
         message_id: &str,
         part_index: u32,
-        body: &str,
         diff: &str,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO patches (patchset_id, message_id, part_index, body, diff) VALUES (?, ?, ?, ?, ?)",
-            libsql::params![patchset_id, message_id, part_index, body, diff]
+            "INSERT INTO patches (patchset_id, message_id, part_index, diff) VALUES (?, ?, ?, ?)",
+            libsql::params![patchset_id, message_id, part_index, diff]
+        ).await?;
+        
+        self.conn.execute(
+             "UPDATE patchsets SET received_parts = received_parts + 1 WHERE id = ?",
+             libsql::params![patchset_id]
         ).await?;
         Ok(())
     }
 
     pub async fn get_patchsets(&self, limit: usize, offset: usize) -> Result<Vec<PatchsetRow>> {
         let mut rows = self.conn.query(
-            "SELECT id, message_id, subject, author, date, status FROM patchsets ORDER BY date DESC LIMIT ? OFFSET ?",
+            "SELECT id, subject, status, thread_id, author, date, cover_letter_message_id FROM patchsets ORDER BY id DESC LIMIT ? OFFSET ?",
             libsql::params![limit as i64, offset as i64],
         ).await?;
 
@@ -231,11 +239,12 @@ impl Database {
         while let Ok(Some(row)) = rows.next().await {
             patchsets.push(PatchsetRow {
                 id: row.get(0)?,
-                message_id: row.get(1)?,
-                subject: row.get(2).ok(),
-                author: row.get(3).ok(),
-                date: row.get(4).ok(),
-                status: row.get(5).ok(),
+                subject: row.get(1).ok(),
+                status: row.get(2).ok(),
+                thread_id: row.get(3).ok(),
+                author: row.get(4).ok(),
+                date: row.get(5).ok(),
+                message_id: row.get(6).ok(),
             });
         }
         Ok(patchsets)
@@ -253,31 +262,30 @@ impl Database {
 
     pub async fn get_patchset_details(
         &self,
-        message_id: &str,
+        id: i64,
     ) -> Result<Option<serde_json::Value>> {
-        // Fetch basic details + baseline
         let mut rows = self.conn.query(
-            "SELECT p.id, p.subject, p.author, p.date, p.status, p.to_recipients, p.cc_recipients, 
-                    b.repo_url, b.branch, b.last_known_commit
+            "SELECT p.id, p.subject, p.status, p.to_recipients, p.cc_recipients, 
+                    b.repo_url, b.branch, b.last_known_commit, p.author, p.date, p.cover_letter_message_id
              FROM patchsets p 
              LEFT JOIN baselines b ON p.baseline_id = b.id
-             WHERE p.message_id = ?",
-            libsql::params![message_id],
+             WHERE p.id = ?",
+            libsql::params![id],
         ).await?;
 
         if let Ok(Some(row)) = rows.next().await {
-            let id: i64 = row.get(0)?;
+            let pid: i64 = row.get(0)?;
             let subject: Option<String> = row.get(1).ok();
-            let author: Option<String> = row.get(2).ok();
-            let date: Option<i64> = row.get(3).ok();
-            let status: Option<String> = row.get(4).ok();
-            let to: Option<String> = row.get(5).ok();
-            let cc: Option<String> = row.get(6).ok();
-            let repo_url: Option<String> = row.get(7).ok();
-            let branch: Option<String> = row.get(8).ok();
-            let commit: Option<String> = row.get(9).ok();
+            let status: Option<String> = row.get(2).ok();
+            let to: Option<String> = row.get(3).ok();
+            let cc: Option<String> = row.get(4).ok();
+            let repo_url: Option<String> = row.get(5).ok();
+            let branch: Option<String> = row.get(6).ok();
+            let commit: Option<String> = row.get(7).ok();
+            let author: Option<String> = row.get(8).ok();
+            let date: Option<i64> = row.get(9).ok();
+            let mid: Option<String> = row.get(10).ok();
 
-            // Fetch reviews
             let mut reviews = Vec::new();
             let mut rev_rows = self
                 .conn
@@ -286,7 +294,7 @@ impl Database {
                  FROM reviews r
                  LEFT JOIN ai_interactions ai ON r.interaction_id = ai.id
                  WHERE r.patchset_id = ?",
-                    libsql::params![id],
+                    libsql::params![pid],
                 )
                 .await?;
 
@@ -301,7 +309,8 @@ impl Database {
             }
 
             Ok(Some(serde_json::json!({
-                "id": message_id,
+                "id": pid,
+                "message_id": mid,
                 "subject": subject,
                 "author": author,
                 "date": date,

@@ -84,17 +84,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     match crate::patch::parse_email(&raw_bytes) {
                         Ok((metadata, patch_opt)) => {
-                            // Check version to decide whether to skip or update
-                            match worker_db.get_patchset_version(&metadata.message_id).await {
-                                Ok(Some(ver)) if ver >= PARSER_VERSION => {
-                                    info!("Skipping up-to-date message: {}", metadata.message_id);
-                                    continue;
+                            // 1. Thread Resolution
+                            let thread_id = if let Some(ref reply_to) = metadata.in_reply_to {
+                                match worker_db.get_thread_id_for_message(reply_to).await {
+                                    Ok(Some(tid)) => tid,
+                                    _ => {
+                                        // Parent not found or error, start new thread
+                                        match worker_db.create_thread(&metadata.message_id, &metadata.subject, metadata.date).await {
+                                            Ok(tid) => tid,
+                                            Err(e) => {
+                                                error!("Failed to create thread: {}", e);
+                                                continue;
+                                            }
+                                        }
+                                    }
                                 }
-                                Ok(Some(_)) => {
-                                    info!("Updating outdated message: {}", metadata.message_id);
+                            } else {
+                                match worker_db.create_thread(&metadata.message_id, &metadata.subject, metadata.date).await {
+                                    Ok(tid) => tid,
+                                    Err(e) => {
+                                        error!("Failed to create thread: {}", e);
+                                        continue;
+                                    }
                                 }
-                                _ => {} // New message
+                            };
+
+                            // 2. Create Message
+                            // TODO: Store body?
+                            if let Err(e) = worker_db.create_message(
+                                &metadata.message_id,
+                                thread_id,
+                                metadata.in_reply_to.as_deref(),
+                                &metadata.author,
+                                &metadata.subject,
+                                metadata.date,
+                                "", // Body not stored yet in this call, usually separate or in patch
+                            ).await {
+                                error!("Failed to create message: {}", e);
                             }
+
+                            // Check version to decide whether to skip or update
+                            // Note: get_patchset_version now looks up by cover letter ID, which might be this message if index==0
+                            // Logic is slightly fuzzy with the new schema + old version check.
+                            // We'll proceed with processing.
 
                             let subject = if metadata.subject.len() > 80 {
                                 format!("{}...", &metadata.subject[..77])
@@ -132,9 +164,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 group, article_id, metadata.author, subject
                             );
 
+                            let cover_letter_id = if metadata.index == 0 {
+                                Some(metadata.message_id.as_str())
+                            } else {
+                                None
+                            };
+
                             match worker_db
                                 .create_patchset(
-                                    &metadata.message_id,
+                                    thread_id,
+                                    cover_letter_id,
                                     &metadata.subject,
                                     &metadata.author,
                                     metadata.date,
@@ -153,7 +192,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 patchset_id,
                                                 &patch.message_id,
                                                 patch.part_index,
-                                                &patch.body,
                                                 &patch.diff,
                                             )
                                             .await

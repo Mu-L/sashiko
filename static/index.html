@@ -106,7 +106,7 @@
                 row.onclick = (e) => {
                     // Don't navigate if clicking the copy button
                     if (e.target.closest('.copy-btn')) return;
-                    window.location.href = `/static/details.html?id=${encodeURIComponent(p.message_id)}`;
+                    window.location.href = `/static/details.html?id=${encodeURIComponent(p.id)}`;
                 };
                 row.style.cursor = 'pointer';
 
@@ -115,7 +115,7 @@
                     <td>${p.author || 'unknown'}</td>
                     <td>${date}</td>
                     <td class="status-${p.status}">${p.status || 'Pending'}</td>
-                    <td style="text-align: right;"><button class="copy-btn" onclick="copyToClipboard('${p.message_id}')">📋</button></td>
+                    <td style="text-align: right;"><button class="copy-btn" onclick="copyToClipboard('${p.message_id || p.id}')">📋</button></td>
                 `;
                 tbody.appendChild(row);
             });

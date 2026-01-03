@@ -81,37 +81,24 @@ async fn list_patchsets(
 
 
 async fn get_patchset(
-
     State(state): State<Arc<AppState>>,
-
     Query(query): Query<PatchQuery>,
-
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let id_val = query.id.parse::<i64>().map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    info!("Fetching details for message_id: {}", query.id);
+    info!("Fetching details for patchset id: {}", id_val);
 
-    match state.db.get_patchset_details(&query.id).await {
-
+    match state.db.get_patchset_details(id_val).await {
         Ok(Some(details)) => Ok(Json(details)),
-
         Ok(None) => {
-
-            info!("Message not found: {}", query.id);
-
+            info!("Patchset not found: {}", id_val);
             Err(StatusCode::NOT_FOUND)
-
         },
-
         Err(e) => {
-
             info!("Database error: {}", e);
-
             Err(StatusCode::INTERNAL_SERVER_ERROR)
-
         },
-
     }
-
 }
 async fn get_stats() -> Json<serde_json::Value> {
     Json(serde_json::json!({

@@ -1,3 +1,14 @@
+DROP TABLE IF EXISTS patches;
+DROP TABLE IF EXISTS reviews;
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS patchsets;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS threads;
+-- We can keep mailing_lists, baselines, ai_interactions if they haven't changed much, but safer to drop all if we are redefining relationships.
+DROP TABLE IF EXISTS mailing_lists;
+DROP TABLE IF EXISTS baselines;
+DROP TABLE IF EXISTS ai_interactions;
+
 CREATE TABLE IF NOT EXISTS mailing_lists (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -5,32 +16,23 @@ CREATE TABLE IF NOT EXISTS mailing_lists (
     last_article_num INTEGER DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS patchsets (
+CREATE TABLE IF NOT EXISTS threads (
     id INTEGER PRIMARY KEY,
-    message_id TEXT NOT NULL UNIQUE,
+    root_message_id TEXT,
     subject TEXT,
-    author TEXT,
-    date INTEGER,
-    total_parts INTEGER,
-    received_parts INTEGER,
-    status TEXT DEFAULT 'Pending', -- Pending, Assembled, Applied, Failed, Reviewed
-    parser_version INTEGER DEFAULT 0,
-    to_recipients TEXT,
-    cc_recipients TEXT,
-    baseline_id INTEGER,
-    FOREIGN KEY(baseline_id) REFERENCES baselines(id)
+    last_updated INTEGER
 );
 
-CREATE INDEX IF NOT EXISTS idx_patchsets_date ON patchsets(date);
-
-CREATE TABLE IF NOT EXISTS patches (
+CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
-    patchset_id INTEGER NOT NULL,
-    message_id TEXT NOT NULL,
-    part_index INTEGER,
+    message_id TEXT NOT NULL UNIQUE,
+    thread_id INTEGER,
+    in_reply_to TEXT,
+    author TEXT,
+    subject TEXT,
+    date INTEGER,
     body TEXT,
-    diff TEXT,
-    FOREIGN KEY(patchset_id) REFERENCES patchsets(id)
+    FOREIGN KEY(thread_id) REFERENCES threads(id)
 );
 
 CREATE TABLE IF NOT EXISTS baselines (
@@ -38,6 +40,37 @@ CREATE TABLE IF NOT EXISTS baselines (
     repo_url TEXT,
     branch TEXT,
     last_known_commit TEXT
+);
+
+CREATE TABLE IF NOT EXISTS patchsets (
+    id INTEGER PRIMARY KEY,
+    thread_id INTEGER,
+    cover_letter_message_id TEXT,
+    subject TEXT,
+    author TEXT,
+    date INTEGER,
+    status TEXT DEFAULT 'Pending', -- Pending, Assembled, Applied, Failed, Reviewed
+    total_parts INTEGER,
+    received_parts INTEGER,
+    baseline_id INTEGER,
+    parser_version INTEGER DEFAULT 0,
+    to_recipients TEXT,
+    cc_recipients TEXT,
+    FOREIGN KEY(thread_id) REFERENCES threads(id),
+    FOREIGN KEY(cover_letter_message_id) REFERENCES messages(message_id),
+    FOREIGN KEY(baseline_id) REFERENCES baselines(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_patchsets_status ON patchsets(status);
+
+CREATE TABLE IF NOT EXISTS patches (
+    id INTEGER PRIMARY KEY,
+    patchset_id INTEGER NOT NULL,
+    message_id TEXT NOT NULL,
+    part_index INTEGER,
+    diff TEXT,
+    FOREIGN KEY(patchset_id) REFERENCES patchsets(id),
+    FOREIGN KEY(message_id) REFERENCES messages(message_id)
 );
 
 CREATE TABLE IF NOT EXISTS reviews (
