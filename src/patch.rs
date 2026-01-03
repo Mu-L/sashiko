@@ -16,6 +16,7 @@ pub struct PatchsetMetadata {
     pub total: u32,
     pub to: String,
     pub cc: String,
+    pub is_patch_or_cover: bool,
 }
 
 #[derive(Debug)]
@@ -97,6 +98,17 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
         String::new()
     };
 
+    // Detection logic
+    let subject_lower = subject.to_lowercase();
+    let is_reply = subject_lower.trim().starts_with("re:");
+    let has_patch_tag = subject_lower.contains("patch");
+    let has_diff = !diff.is_empty();
+
+    // It is a patch or cover letter if:
+    // 1. It has [PATCH] tag AND is NOT a reply (Re: ...)
+    // 2. OR it contains a diff (regardless of subject, though rare for non-patches)
+    let is_patch_or_cover = (has_patch_tag && !is_reply) || has_diff;
+
     let metadata = PatchsetMetadata {
         message_id: message_id.clone(),
         subject,
@@ -108,9 +120,10 @@ pub fn parse_email(raw_email: &[u8]) -> Result<(PatchsetMetadata, Option<Patch>)
         total,
         to,
         cc,
+        is_patch_or_cover,
     };
 
-    let patch = if !diff.is_empty() {
+    let patch = if has_diff {
         Some(Patch {
             message_id,
             body,

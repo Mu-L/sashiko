@@ -187,39 +187,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 None
                             };
 
-                            match worker_db
-                                .create_patchset(
-                                    thread_id,
-                                    cover_letter_id,
-                                    &metadata.subject,
-                                    &metadata.author,
-                                    metadata.date,
-                                    metadata.total,
-                                    PARSER_VERSION,
-                                    &metadata.to,
-                                    &metadata.cc,
-                                    baseline_id,
-                                )
-                                .await
-                            {
-                                Ok(patchset_id) => {
-                                    if let Some(patch) = patch_opt {
-                                        if let Err(e) = worker_db
-                                            .create_patch(
-                                                patchset_id,
-                                                &patch.message_id,
-                                                patch.part_index,
-                                                &patch.diff,
-                                            )
-                                            .await
-                                        {
-                                            error!("Failed to save patch: {}", e);
+                            if metadata.is_patch_or_cover {
+                                match worker_db
+                                    .create_patchset(
+                                        thread_id,
+                                        cover_letter_id,
+                                        &metadata.subject,
+                                        &metadata.author,
+                                        metadata.date,
+                                        metadata.total,
+                                        PARSER_VERSION,
+                                        &metadata.to,
+                                        &metadata.cc,
+                                        baseline_id,
+                                    )
+                                    .await
+                                {
+                                    Ok(patchset_id) => {
+                                        if let Some(patch) = patch_opt {
+                                            if let Err(e) = worker_db
+                                                .create_patch(
+                                                    patchset_id,
+                                                    &patch.message_id,
+                                                    patch.part_index,
+                                                    &patch.diff,
+                                                )
+                                                .await
+                                            {
+                                                error!("Failed to save patch: {}", e);
+                                            }
                                         }
                                     }
+                                    Err(e) => {
+                                        error!("Failed to save patchset: {}", e);
+                                    }
                                 }
-                                Err(e) => {
-                                    error!("Failed to save patchset: {}", e);
-                                }
+                            } else {
+                                // It's a reply or non-patch message. We've already saved it as a message.
+                                // We might want to ensure it's linked to the patchset if we want to count comments,
+                                // but for now, the prompt focuses on displaying patchsets.
+                                // The relationships are: Message -> Thread, Patchset -> Thread.
+                                // So we can find replies via Thread ID.
+                                info!("Skipping patchset creation/update for non-patch message: {}", metadata.message_id);
                             }
                         }
 

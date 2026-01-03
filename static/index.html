@@ -25,6 +25,7 @@
             <tr>
                 <th>Subject</th>
                 <th>Author</th>
+                <th>Parts</th>
                 <th>Date</th>
                 <th>Status</th>
                 <th></th>
@@ -101,6 +102,7 @@
             items.forEach(p => {
                 const row = document.createElement('tr');
                 const date = new Date(p.date * 1000).toISOString().split('T')[0];
+                const parts = `${p.received_parts || 0}/${p.total_parts || 0}`;
                 
                 // Click handler for row
                 row.onclick = (e) => {
@@ -113,6 +115,7 @@
                 row.innerHTML = `
                     <td>${p.subject || '(no subject)'}</td>
                     <td>${p.author || 'unknown'}</td>
+                    <td>${parts}</td>
                     <td>${date}</td>
                     <td class="status-${p.status}">${p.status || 'Pending'}</td>
                     <td style="text-align: right;"><button class="copy-btn" onclick="copyToClipboard('${p.message_id || p.id}')">📋</button></td>

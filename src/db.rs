@@ -17,6 +17,8 @@ pub struct PatchsetRow {
     pub author: Option<String>,
     pub date: Option<i64>,
     pub message_id: Option<String>,
+    pub total_parts: Option<u32>,
+    pub received_parts: Option<u32>,
 }
 
 impl Database {
@@ -232,7 +234,7 @@ impl Database {
 
     pub async fn get_patchsets(&self, limit: usize, offset: usize) -> Result<Vec<PatchsetRow>> {
         let mut rows = self.conn.query(
-            "SELECT id, subject, status, thread_id, author, date, cover_letter_message_id FROM patchsets ORDER BY id DESC LIMIT ? OFFSET ?",
+            "SELECT id, subject, status, thread_id, author, date, cover_letter_message_id, total_parts, received_parts FROM patchsets ORDER BY id DESC LIMIT ? OFFSET ?",
             libsql::params![limit as i64, offset as i64],
         ).await?;
 
@@ -246,6 +248,8 @@ impl Database {
                 author: row.get(4).ok(),
                 date: row.get(5).ok(),
                 message_id: row.get(6).ok(),
+                total_parts: row.get(7).ok(),
+                received_parts: row.get(8).ok(),
             });
         }
         Ok(patchsets)
