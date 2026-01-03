@@ -118,6 +118,28 @@ impl Database {
         }
     }
 
+    pub async fn ensure_thread_for_message(&self, message_id: &str, date: i64) -> Result<i64> {
+        // 1. Check if message exists
+        if let Some(tid) = self.get_thread_id_for_message(message_id).await? {
+            return Ok(tid);
+        }
+
+        // 2. Not found, create new thread and placeholder message
+        let thread_id = self.create_thread(message_id, "(placeholder)", date).await?;
+        
+        self.create_message(
+            message_id,
+            thread_id,
+            None,
+            "unknown",
+            "(placeholder)",
+            date,
+            "",
+        ).await?;
+
+        Ok(thread_id)
+    }
+
     pub async fn create_message(
         &self,
         message_id: &str,
@@ -128,8 +150,19 @@ impl Database {
         date: i64,
         body: &str,
     ) -> Result<()> {
+        // Use INSERT OR REPLACE to handle updating placeholders
+        // But we want to preserve thread_id if it was set by placeholder (which is correct).
+        // Actually, if we are "creating" the real message now, we should overwrite the placeholder fields.
+        // But we must ensure we keep the same thread_id if it exists? 
+        // No, the caller (main.rs) resolves thread_id before calling create_message.
+        // If we found a placeholder, we use its thread_id.
+        // So here we just upsert.
+        
+        // However, if we blindly REPLACE, we might change the thread_id if we passed a different one?
+        // But main.rs logic should ensure consistency.
+        // Let's use INSERT OR REPLACE.
         self.conn.execute(
-            "INSERT OR IGNORE INTO messages (message_id, thread_id, in_reply_to, author, subject, date, body) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO messages (message_id, thread_id, in_reply_to, author, subject, date, body) VALUES (?, ?, ?, ?, ?, ?, ?)",
             libsql::params![message_id, thread_id, in_reply_to, author, subject, date, body],
         ).await?;
         Ok(())
