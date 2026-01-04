@@ -40,6 +40,7 @@ pub struct MessageRow {
     pub body: Option<String>,
     pub to: Option<String>,
     pub cc: Option<String>,
+    pub thread: Option<Vec<serde_json::Value>>,
 }
 
 impl Database {
@@ -50,10 +51,31 @@ impl Database {
         ).await?;
 
         if let Ok(Some(row)) = rows.next().await {
+            let thread_id: Option<i64> = row.get(2).ok();
+            
+            // Fetch thread messages
+            let mut messages = Vec::new();
+            if let Some(tid) = thread_id {
+                let mut msg_rows = self.conn.query(
+                    "SELECT id, message_id, author, date, subject, in_reply_to FROM messages WHERE thread_id = ? ORDER BY date ASC",
+                    libsql::params![tid]
+                ).await?;
+                while let Ok(Some(m)) = msg_rows.next().await {
+                    messages.push(serde_json::json!({
+                        "id": m.get::<i64>(0)?,
+                        "message_id": m.get::<String>(1)?,
+                        "author": m.get::<Option<String>>(2).ok(),
+                        "date": m.get::<Option<i64>>(3).ok(),
+                        "subject": m.get::<Option<String>>(4).ok(),
+                        "in_reply_to": m.get::<Option<String>>(5).ok(),
+                    }));
+                }
+            }
+
             Ok(Some(MessageRow {
                 id: row.get(0)?,
                 message_id: row.get(1)?,
-                thread_id: row.get(2).ok(),
+                thread_id,
                 in_reply_to: row.get(3).ok(),
                 author: row.get(4).ok(),
                 subject: row.get(5).ok(),
@@ -61,6 +83,7 @@ impl Database {
                 body: row.get(7).ok(),
                 to: row.get(8).ok(),
                 cc: row.get(9).ok(),
+                thread: Some(messages),
             }))
         } else {
             Ok(None)

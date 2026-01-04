@@ -37,6 +37,12 @@
                 <button class="copy-btn" onclick="copyMsgId()">Copy ID</button>
             </div>
         </div>
+        
+        <div id="thread-section" style="margin-bottom: 20px; display: none;">
+            <h3 style="border-bottom: 1px solid #eee; padding-bottom: 5px;">Thread History</h3>
+            <div id="thread-tree" style="font-size: 0.9em;"></div>
+        </div>
+
         <pre id="body"></pre>
     </div>
 
@@ -77,11 +83,65 @@
                 document.getElementById('msgid').innerText = data.message_id;
                 document.getElementById('body').innerText = data.body || '(No body content)';
 
+                if (data.thread && data.thread.length > 0) {
+                    renderThreadTree(data.thread, data.id);
+                    document.getElementById('thread-section').style.display = 'block';
+                }
+
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
             } catch (e) {
                 document.getElementById('loading').innerText = 'Error loading message: ' + e.message;
             }
+        }
+
+        function renderThreadTree(messages, currentMsgId) {
+            const msgMap = new Map();
+            const childrenMap = new Map();
+            messages.forEach(m => {
+                msgMap.set(m.message_id, m);
+                childrenMap.set(m.message_id, []);
+            });
+
+            const roots = [];
+            messages.forEach(m => {
+                const parentId = m.in_reply_to;
+                if (parentId && msgMap.has(parentId)) {
+                    childrenMap.get(parentId).push(m);
+                } else {
+                    roots.push(m);
+                }
+            });
+
+            let html = '<ul style="list-style: none; padding-left: 0;">';
+            
+            function renderNode(m) {
+                const isCurrent = m.id === currentMsgId;
+                const style = isCurrent ? 'font-weight: bold; background-color: #eef;' : '';
+                const mDate = m.date ? new Date(m.date * 1000).toLocaleDateString() : '-';
+                
+                html += `
+                    <li style="margin-left: 20px; padding: 2px;">
+                        <span style="color: #666; font-family: monospace;">[${mDate}]</span> 
+                        ${m.author || 'unknown'}: 
+                        <a href="/static/message.html?id=${m.id}" style="${style}">
+                           ${m.subject || '(no subject)'}
+                        </a>
+                `;
+
+                const children = childrenMap.get(m.message_id) || [];
+                if (children.length > 0) {
+                    html += '<ul style="list-style: none; padding-left: 0;">';
+                    children.forEach(c => renderNode(c));
+                    html += '</ul>';
+                }
+                html += '</li>';
+            }
+
+            roots.forEach(r => renderNode(r));
+            html += '</ul>';
+            
+            document.getElementById('thread-tree').innerHTML = html;
         }
 
         fetchMessage();
