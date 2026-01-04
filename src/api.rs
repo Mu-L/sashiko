@@ -147,9 +147,14 @@ async fn get_message(
     }
 }
 
-async fn get_stats() -> Json<serde_json::Value> {
+async fn get_stats(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let messages = state.db.count_messages().await.unwrap_or(0);
+    let patchsets = state.db.count_patchsets().await.unwrap_or(0);
+
     Json(serde_json::json!({
         "status": "ok",
-        "version": "0.1.0"
+        "version": "0.1.0",
+        "messages": messages,
+        "patchsets": patchsets
     }))
 }

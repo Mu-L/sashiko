@@ -52,7 +52,10 @@
         async function fetchStats() {
             const res = await fetch('/api/stats');
             const data = await res.json();
-            document.getElementById('stats').textContent = `System Status: ${data.status} (v${data.version})`;
+            document.getElementById('stats').innerHTML = `
+                System Status: ${data.status} (v${data.version}) <br>
+                Messages: ${data.messages} | Patchsets: ${data.patchsets}
+            `;
         }
 
         function copyToClipboard(text) {
