@@ -40,16 +40,18 @@ Sashiko follows a modular, single-node architecture designed for high concurrenc
 
 ## 3. Data Schema (libSQL)
 
-The data model is built around four core entities: **Messages**, **Threads**, **Patches**, and **Patchsets**.
+The data model is built around five core entities: **Messages**, **Threads**, **Patches**, **Patchsets**, and **Subsystems**.
 
 *   **Message**: Represents a single email received via NNTP.
 *   **Thread**: A conversation consisting of multiple messages (linked via `In-Reply-To` and `References`).
 *   **Patch**: A code change (diff) contained within a specific message.
 *   **Patchset**: A logical collection of patches (e.g., a series 1/N, 2/N) intended to be applied together.
+*   **Subsystem**: A logical grouping of changes based on Linux kernel subsystems (e.g., "netdev", "bpf", "usb"), determined by the mailing lists in To/Cc headers.
 
 ### 3.1. Tables
 
 *   **`mailing_lists`**: `id`, `name`, `nntp_group`, `last_article_num`.
+*   **`subsystems`**: `id`, `name`, `mailing_list_address` (e.g., `netdev@vger.kernel.org`).
 *   **`threads`**:
     *   `id`: Primary Key.
     *   `root_message_id`: The Message-ID of the thread starter.
@@ -92,6 +94,11 @@ The data model is built around four core entities: **Messages**, **Threads**, **
     *   `output_raw`: Raw response received from the LLM.
     *   `tokens_in`, `tokens_out`: Usage metrics for cost tracking.
     *   `created_at`: Timestamp.
+*   **Junction Tables**:
+    *   `messages_subsystems`: `message_id` (FK), `subsystem_id` (FK).
+    *   `threads_subsystems`: `thread_id` (FK), `subsystem_id` (FK).
+    *   `patches_subsystems`: `patch_id` (FK), `subsystem_id` (FK).
+    *   `patchsets_subsystems`: `patchset_id` (FK), `subsystem_id` (FK).
 
 ## 4. Scalability & Reliability
 

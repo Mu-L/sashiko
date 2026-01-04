@@ -145,6 +145,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 error!("Failed to create message: {}", e);
                             }
 
+                            // Subsystem Identification and Linking
+                            let subsystems = identify_subsystems(&metadata.to, &metadata.cc);
+                            let mut subsystem_ids = Vec::new();
+                            for (name, email) in subsystems {
+                                match worker_db.ensure_subsystem(&name, &email).await {
+                                    Ok(sid) => subsystem_ids.push(sid),
+                                    Err(e) => error!("Failed to ensure subsystem {}: {}", name, e),
+                                }
+                            }
+
+                            if let Ok(Some(msg_id_db)) = worker_db
+                                .get_message_id_by_msg_id(&metadata.message_id)
+                                .await
+                            {
+                                for &sid in &subsystem_ids {
+                                    if let Err(e) =
+                                        worker_db.add_subsystem_to_message(msg_id_db, sid).await
+                                    {
+                                        error!("Failed to link message to subsystem: {}", e);
+                                    }
+                                    if let Err(e) =
+                                        worker_db.add_subsystem_to_thread(thread_id, sid).await
+                                    {
+                                        error!("Failed to link thread to subsystem: {}", e);
+                                    }
+                                }
+                            }
+
                             // Check version to decide whether to skip or update
                             // Note: get_patchset_version now looks up by cover letter ID, which might be this message if index==0
                             // Logic is slightly fuzzy with the new schema + old version check.
@@ -211,8 +239,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     .await
                                 {
                                     Ok(Some(patchset_id)) => {
-                                        if let Some(patch) = patch_opt {
+                                        for &sid in &subsystem_ids {
                                             if let Err(e) = worker_db
+                                                .add_subsystem_to_patchset(patchset_id, sid)
+                                                .await
+                                            {
+                                                error!(
+                                                    "Failed to link patchset to subsystem: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+
+                                        if let Some(patch) = patch_opt {
+                                            match worker_db
                                                 .create_patch(
                                                     patchset_id,
                                                     &patch.message_id,
@@ -221,7 +261,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 )
                                                 .await
                                             {
-                                                error!("Failed to save patch: {}", e);
+                                                Ok(patch_id) => {
+                                                    for &sid in &subsystem_ids {
+                                                        if let Err(e) = worker_db
+                                                            .add_subsystem_to_patch(patch_id, sid)
+                                                            .await
+                                                        {
+                                                            error!(
+                                                                "Failed to link patch to subsystem: {}",
+                                                                e
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => error!("Failed to save patch: {}", e),
                                             }
                                         }
                                     }
@@ -284,6 +337,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// Helper function to map To/Cc to Subsystems
+fn identify_subsystems(to: &str, cc: &str) -> Vec<(String, String)> {
+    let mut subsystems = Vec::new();
+    let mut all_recipients = String::new();
+    all_recipients.push_str(to);
+    all_recipients.push_str(", ");
+    all_recipients.push_str(cc);
+
+    for email in all_recipients.split(',') {
+        let email = email.trim();
+        if email.is_empty() {
+            continue;
+        }
+
+        let lower_email = email.to_lowercase();
+
+        // 1. Static Map (Mimic MAINTAINERS)
+        if lower_email.contains("linux-kernel@vger.kernel.org") {
+            subsystems.push((
+                "LKML".to_string(),
+                "linux-kernel@vger.kernel.org".to_string(),
+            ));
+        } else if lower_email.contains("netdev@vger.kernel.org") {
+            subsystems.push(("netdev".to_string(), "netdev@vger.kernel.org".to_string()));
+        } else if lower_email.contains("bpf@vger.kernel.org") {
+            subsystems.push(("bpf".to_string(), "bpf@vger.kernel.org".to_string()));
+        } else if lower_email.contains("linux-usb@vger.kernel.org") {
+            subsystems.push(("usb".to_string(), "linux-usb@vger.kernel.org".to_string()));
+        } else if lower_email.contains("linux-fsdevel@vger.kernel.org") {
+            subsystems.push((
+                "fsdevel".to_string(),
+                "linux-fsdevel@vger.kernel.org".to_string(),
+            ));
+        } else if lower_email.contains("linux-mm@kvack.org") {
+            subsystems.push(("mm".to_string(), "linux-mm@kvack.org".to_string()));
+        } else if lower_email.ends_with("@vger.kernel.org")
+            || lower_email.ends_with("@lists.linux.dev")
+            || lower_email.ends_with("@lists.infradead.org")
+        {
+            // Fallback: derive name from email user part
+            if let Some(name) = lower_email.split('@').next() {
+                subsystems.push((name.to_string(), email.to_string()));
+            }
+        }
+    }
+
+    subsystems.sort();
+    subsystems.dedup();
+    subsystems
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,5 +403,36 @@ mod tests {
         let cli = Cli::parse_from(args);
         assert_eq!(cli.download, None);
         assert!(!cli.no_nntp);
+    }
+
+    #[test]
+    fn test_identify_subsystems() {
+        // Test known subsystem
+        let to = "linux-kernel@vger.kernel.org";
+        let cc = "netdev@vger.kernel.org";
+        let subsystems = identify_subsystems(to, cc);
+        assert!(subsystems.contains(&(
+            "LKML".to_string(),
+            "linux-kernel@vger.kernel.org".to_string()
+        )));
+        assert!(subsystems.contains(&("netdev".to_string(), "netdev@vger.kernel.org".to_string())));
+
+        // Test fallback
+        let to = "unknown-list@vger.kernel.org";
+        let cc = "";
+        let subsystems = identify_subsystems(to, cc);
+        assert!(subsystems.contains(&(
+            "unknown-list".to_string(),
+            "unknown-list@vger.kernel.org".to_string()
+        )));
+
+        // Test mixed
+        let to = "linux-usb@vger.kernel.org, random-user@example.com";
+        let cc = "bpf@vger.kernel.org";
+        let subsystems = identify_subsystems(to, cc);
+        assert!(subsystems.contains(&("usb".to_string(), "linux-usb@vger.kernel.org".to_string())));
+        assert!(subsystems.contains(&("bpf".to_string(), "bpf@vger.kernel.org".to_string())));
+        // random-user should be ignored as it doesn't match list patterns
+        assert_eq!(subsystems.len(), 2);
     }
 }

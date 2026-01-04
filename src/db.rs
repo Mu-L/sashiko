@@ -9,6 +9,13 @@ pub struct Database {
 }
 
 #[derive(Debug, Serialize)]
+pub struct Subsystem {
+    pub id: i64,
+    pub name: String,
+    pub mailing_list_address: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct PatchsetRow {
     pub id: i64,
     pub subject: Option<String>,
@@ -43,6 +50,95 @@ impl Database {
         self.conn.execute_batch(schema).await?;
         info!("Database schema applied");
         Ok(())
+    }
+
+    // Subsystems
+    pub async fn ensure_subsystem(&self, name: &str, mailing_list_address: &str) -> Result<i64> {
+        // Try to insert
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO subsystems (name, mailing_list_address) VALUES (?, ?)",
+                libsql::params![name, mailing_list_address],
+            )
+            .await?;
+
+        // Get ID
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id FROM subsystems WHERE mailing_list_address = ?",
+                libsql::params![mailing_list_address],
+            )
+            .await?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            Ok(row.get(0)?)
+        } else {
+            Err(anyhow::anyhow!("Failed to ensure subsystem"))
+        }
+    }
+
+    pub async fn add_subsystem_to_message(
+        &self,
+        message_id_db: i64,
+        subsystem_id: i64,
+    ) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO messages_subsystems (message_id, subsystem_id) VALUES (?, ?)",
+                libsql::params![message_id_db, subsystem_id],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn add_subsystem_to_thread(&self, thread_id: i64, subsystem_id: i64) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO threads_subsystems (thread_id, subsystem_id) VALUES (?, ?)",
+                libsql::params![thread_id, subsystem_id],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn add_subsystem_to_patch(&self, patch_id: i64, subsystem_id: i64) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO patches_subsystems (patch_id, subsystem_id) VALUES (?, ?)",
+                libsql::params![patch_id, subsystem_id],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn add_subsystem_to_patchset(
+        &self,
+        patchset_id: i64,
+        subsystem_id: i64,
+    ) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO patchsets_subsystems (patchset_id, subsystem_id) VALUES (?, ?)",
+                libsql::params![patchset_id, subsystem_id],
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_message_id_by_msg_id(&self, msg_id: &str) -> Result<Option<i64>> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id FROM messages WHERE message_id = ?",
+                libsql::params![msg_id],
+            )
+            .await?;
+        if let Ok(Some(row)) = rows.next().await {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn ensure_mailing_list(&self, name: &str, group: &str) -> Result<()> {
@@ -412,7 +508,7 @@ impl Database {
         message_id: &str,
         part_index: u32,
         diff: &str,
-    ) -> Result<()> {
+    ) -> Result<i64> {
         self.conn.execute(
             "INSERT OR IGNORE INTO patches (patchset_id, message_id, part_index, diff) VALUES (?, ?, ?, ?)",
             libsql::params![patchset_id, message_id, part_index, diff]
@@ -433,7 +529,20 @@ impl Database {
             libsql::params![patchset_id],
         ).await?;
 
-        Ok(())
+        // Get the patch ID
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id FROM patches WHERE message_id = ?",
+                libsql::params![message_id],
+            )
+            .await?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            Ok(row.get(0)?)
+        } else {
+            Err(anyhow::anyhow!("Failed to get patch ID"))
+        }
     }
 
     pub async fn get_patchsets(&self, limit: usize, offset: usize) -> Result<Vec<PatchsetRow>> {

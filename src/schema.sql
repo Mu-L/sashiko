@@ -5,6 +5,12 @@ CREATE TABLE IF NOT EXISTS mailing_lists (
     last_article_num INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS subsystems (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    mailing_list_address TEXT NOT NULL UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS threads (
     id INTEGER PRIMARY KEY,
     root_message_id TEXT,
@@ -95,4 +101,36 @@ CREATE TABLE IF NOT EXISTS ai_interactions (
     tokens_in INTEGER,
     tokens_out INTEGER,
     created_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS messages_subsystems (
+    message_id INTEGER NOT NULL,
+    subsystem_id INTEGER NOT NULL,
+    PRIMARY KEY (message_id, subsystem_id),
+    FOREIGN KEY(message_id) REFERENCES messages(id),
+    FOREIGN KEY(subsystem_id) REFERENCES subsystems(id)
+);
+
+CREATE TABLE IF NOT EXISTS threads_subsystems (
+    thread_id INTEGER NOT NULL,
+    subsystem_id INTEGER NOT NULL,
+    PRIMARY KEY (thread_id, subsystem_id),
+    FOREIGN KEY(thread_id) REFERENCES threads(id),
+    FOREIGN KEY(subsystem_id) REFERENCES subsystems(id)
+);
+
+CREATE TABLE IF NOT EXISTS patches_subsystems (
+    patch_id INTEGER NOT NULL,
+    subsystem_id INTEGER NOT NULL,
+    PRIMARY KEY (patch_id, subsystem_id),
+    FOREIGN KEY(patch_id) REFERENCES patches(id),
+    FOREIGN KEY(subsystem_id) REFERENCES subsystems(id)
+);
+
+CREATE TABLE IF NOT EXISTS patchsets_subsystems (
+    patchset_id INTEGER NOT NULL,
+    subsystem_id INTEGER NOT NULL,
+    PRIMARY KEY (patchset_id, subsystem_id),
+    FOREIGN KEY(patchset_id) REFERENCES patchsets(id),
+    FOREIGN KEY(subsystem_id) REFERENCES subsystems(id)
 );
