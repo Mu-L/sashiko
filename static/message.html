@@ -175,6 +175,32 @@
         }
 
         fetchMessage();
+
+        // Keyboard Navigation
+        document.addEventListener('keydown', (e) => {
+            if (document.activeElement.tagName === 'INPUT') return;
+
+            // Scroll Up
+            if (e.key === 'k' || e.key === 'ArrowUp' || (e.ctrlKey && e.key === 'p')) {
+                if (e.key === 'k' || (e.ctrlKey && e.key === 'p')) {
+                    window.scrollBy(0, -50);
+                }
+            }
+            // Scroll Down
+            else if (e.key === 'j' || e.key === 'ArrowDown' || (e.ctrlKey && e.key === 'n')) {
+                if (e.key === 'j' || (e.ctrlKey && e.key === 'n')) {
+                    window.scrollBy(0, 50);
+                }
+            }
+            // Back
+            else if (e.key === 'q' || e.key === 'h' || e.key === 'ArrowLeft') {
+                if (window.history.length > 1) {
+                    window.history.back();
+                } else {
+                    window.location.href = '/';
+                }
+            }
+        });
     </script>
 </body>
 </html>
