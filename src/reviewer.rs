@@ -129,90 +129,127 @@ impl Reviewer {
                     }
                 }
                 
-                let resolution = baseline_registry.resolve_baseline(&all_files, &subject);
-                let (baseline_ref, remote_info, fetch_warning) = match resolution {
-                    BaselineResolution::LocalRef(r) => {
-                        info!("Using local baseline for {}: {}", patchset_id, r);
-                        (r, None, None)
-                    },
-                    BaselineResolution::RemoteTarget { url, name } => {
-                        info!("Fetching remote baseline for {}: {} ({})", patchset_id, name, url);
-                        let repo_path = PathBuf::from(&settings.git.repository_path);
-                        match ensure_remote(&repo_path, &name, &url, false).await {
-                            Ok(_) => (format!("{}/master", name), Some((url, name)), None),
-                            Err(e) => {
-                                let msg = format!("Failed to fetch remote {}: {}. Fallback to HEAD.", url, e);
-                                error!("{}", msg);
-                                ("HEAD".to_string(), None, Some(msg))
-                            }
-                        }
-                    }
-                };
-
-                // Get Hashes for Experiment Record
-                let prompts_hash = get_commit_hash(Path::new("review-prompts"), "HEAD").await.ok();
-                let repo_path = PathBuf::from(&settings.git.repository_path);
-                let baseline_commit = get_commit_hash(&repo_path, &baseline_ref).await.ok();
-                
-                // Create Baseline Record
-                let baseline_id = if let Some(commit) = &baseline_commit {
-                    let (repo_url, branch) = if let Some((u, _)) = &remote_info {
-                        (Some(u.as_str()), Some(baseline_ref.as_str()))
-                    } else {
-                        (None, Some(baseline_ref.as_str()))
-                    };
-                    db.create_baseline(repo_url, branch, Some(commit)).await.ok()
+                // Fetch body for base-commit detection
+                let body = if let Some(mid) = &patchset.message_id {
+                    db.get_message_body(mid).await.unwrap_or(None)
+                } else if let Some(first_patch_msg_id) = patches_json.first().and_then(|p| p["message_id"].as_str()) {
+                    db.get_message_body(first_patch_msg_id).await.unwrap_or(None)
                 } else {
                     None
                 };
 
-                let (mut status, mut description) = match run_review_tool(patchset_id, &input_payload, &settings, db.clone(), &baseline_ref).await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        error!("Review execution failed for {}: {}", patchset_id, e);
-                        ("Failed".to_string(), format!("Execution error: {}", e))
-                    }
-                };
+                let candidates = baseline_registry.resolve_candidates(&all_files, &subject, body.as_deref());
+                
+                let mut final_status = "Failed".to_string();
+                let repo_path = PathBuf::from(&settings.git.repository_path);
 
-                if let Some(warning) = fetch_warning {
-                    description = format!("{} [Warning: {}]", description, warning);
-                }
-
-                // Retry logic
-                if status == "Failed" {
-                    if let Some((url, name)) = remote_info {
-                        info!("Patchset {} failed with remote baseline. Forcing fetch and retrying...", patchset_id);
-                        if let Ok(_) = ensure_remote(&repo_path, &name, &url, true).await {
-                             match run_review_tool(patchset_id, &input_payload, &settings, db.clone(), &baseline_ref).await {
-                                Ok((s, d)) => {
-                                    info!("Retry result for {}: {}", patchset_id, s);
-                                    status = s;
-                                    description = d;
-                                },
+                for candidate in candidates {
+                    let (baseline_ref, remote_info, fetch_warning) = match candidate {
+                        BaselineResolution::Commit(h) => {
+                            info!("Using base-commit for {}: {}", patchset_id, h);
+                            (h, Option::<(String, String)>::None, Option::<String>::None)
+                        },
+                        BaselineResolution::LocalRef(r) => {
+                            info!("Using local baseline for {}: {}", patchset_id, r);
+                            (r, Option::<(String, String)>::None, Option::<String>::None)
+                        },
+                        BaselineResolution::RemoteTarget { url, name } => {
+                            info!("Fetching remote baseline for {}: {} ({})", patchset_id, name, url);
+                            match ensure_remote(&repo_path, &name, &url, false).await {
+                                Ok(_) => (format!("{}/master", name), Some((url, name)), None),
                                 Err(e) => {
-                                    error!("Retry failed for {}: {}", patchset_id, e);
-                                    description = format!("{} [Retry error: {}]", description, e);
+                                    let msg = format!("Failed to fetch remote {}: {}. Skipping candidate.", url, e);
+                                    error!("{}", msg);
+                                    // Skip this candidate if fetch failed
+                                    // We still record the attempt?
+                                    // Yes, let's record a failed attempt with empty baseline or special marker.
+                                    // But to run the tool we need a baseline.
+                                    // If fetch failed, we can't use this candidate.
+                                    // Let's create a record saying "Fetch Failed" and continue.
+                                    
+                                    // Record skipped experiment
+                                    if let Err(e) = db.create_review_experiment(
+                                        patchset_id,
+                                        &settings.ai.provider,
+                                        &settings.ai.model,
+                                        None, // No prompts hash needed for fetch failure
+                                        None, // No baseline ID
+                                        &msg
+                                    ).await {
+                                        error!("Failed to record fetch failure: {}", e);
+                                    }
+                                    continue;
                                 }
-                             }
+                            }
+                        }
+                    };
+
+                    let prompts_hash = get_commit_hash(Path::new("review-prompts"), "HEAD").await.ok();
+                    let baseline_commit = get_commit_hash(&repo_path, &baseline_ref).await.ok();
+                    
+                    let baseline_id = if let Some(commit) = &baseline_commit {
+                        let (repo_url, branch) = if let Some((u, _)) = &remote_info {
+                            (Some(u.as_str()), Some(baseline_ref.as_str()))
+                        } else {
+                            (None, Some(baseline_ref.as_str()))
+                        };
+                        db.create_baseline(repo_url, branch, Some(commit)).await.ok()
+                    } else {
+                        None
+                    };
+
+                    let (mut status, mut description) = match run_review_tool(patchset_id, &input_payload, &settings, db.clone(), &baseline_ref).await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            error!("Review execution failed for {}: {}", patchset_id, e);
+                            ("Failed".to_string(), format!("Execution error: {}", e))
+                        }
+                    };
+
+                    if let Some(warning) = fetch_warning {
+                        description = format!("{} [Warning: {}]", description, warning);
+                    }
+
+                    // Retry logic (only for RemoteTarget failure)
+                    if status == "Failed" {
+                        if let Some((url, name)) = remote_info {
+                            info!("Patchset {} failed with remote baseline. Forcing fetch and retrying...", patchset_id);
+                            if let Ok(_) = ensure_remote(&repo_path, &name, &url, true).await {
+                                match run_review_tool(patchset_id, &input_payload, &settings, db.clone(), &baseline_ref).await {
+                                    Ok((s, d)) => {
+                                        info!("Retry result for {}: {}", patchset_id, s);
+                                        status = s;
+                                        description = d;
+                                    },
+                                    Err(e) => {
+                                        description = format!("{} [Retry error: {}]", description, e);
+                                    }
+                                }
+                            }
                         }
                     }
+
+                    // Record Experiment
+                    if let Err(e) = db.create_review_experiment(
+                        patchset_id,
+                        &settings.ai.provider,
+                        &settings.ai.model,
+                        prompts_hash.as_deref(),
+                        baseline_id,
+                        &description
+                    ).await {
+                        error!("Failed to record review experiment for {}: {}", patchset_id, e);
+                    }
+
+                    if status == "Applied" {
+                        final_status = "Applied".to_string();
+                        break; // Stop trying candidates
+                    }
                 }
 
-                info!("Review finished for {}: {}", patchset_id, status);
-                if let Err(e) = db.update_patchset_status(patchset_id, &status).await {
+                info!("Review process finished for {}: {}", patchset_id, final_status);
+                if let Err(e) = db.update_patchset_status(patchset_id, &final_status).await {
                     error!("Failed to update status for {}: {}", patchset_id, e);
-                }
-
-                // Record Experiment
-                if let Err(e) = db.create_review_experiment(
-                    patchset_id,
-                    &settings.ai.provider,
-                    &settings.ai.model,
-                    prompts_hash.as_deref(),
-                    baseline_id,
-                    &description
-                ).await {
-                    error!("Failed to record review experiment for {}: {}", patchset_id, e);
                 }
             });
         }

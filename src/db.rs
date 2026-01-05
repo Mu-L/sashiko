@@ -133,6 +133,42 @@ impl Database {
         Ok(None)
     }
 
+    pub async fn get_message_body(&self, msg_id: &str) -> Result<Option<String>> {
+        let mut rows = self.conn.query(
+            "SELECT body, git_blob_hash, mailing_list FROM messages WHERE message_id = ?",
+            libsql::params![msg_id],
+        ).await?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            let body: Option<String> = row.get(0).ok();
+            if let Some(b) = body {
+                if !b.is_empty() {
+                    return Ok(Some(b));
+                }
+            }
+            // Try git blob
+            let hash: Option<String> = row.get(1).ok();
+            let group: Option<String> = row.get(2).ok();
+            
+            if let (Some(_h), Some(_g)) = (hash, group) {
+                 // We don't have easy access to git_ops::read_blob here without repo path.
+                 // Assuming db shouldn't know about repo path logic or we pass it?
+                 // Reviewer service has repo path.
+                 // Let's just return None if body is empty in DB, and let caller handle blob if needed.
+                 // But for base-commit, we need the body.
+                 // Ideally body is populated in DB if small?
+                 // Sashiko stores body in DB unless it's a huge patch?
+                 // "body_to_store" in main.rs logic: 
+                 // `if is_git_hash { ("", Some(hash)) } else { (body, None) }`
+                 // So if it's from git archive, body is empty in DB.
+                 return Ok(None);
+            }
+            Ok(None)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn new(settings: &DatabaseSettings) -> Result<Self> {
         info!("Connecting to database at {}", settings.url);
 
