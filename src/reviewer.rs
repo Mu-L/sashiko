@@ -130,37 +130,55 @@ impl Reviewer {
                 }
                 
                 let resolution = baseline_registry.resolve_baseline(&all_files, &subject);
-                let baseline_ref = match resolution {
+                let (baseline_ref, remote_info) = match resolution {
                     BaselineResolution::LocalRef(r) => {
                         info!("Using local baseline for {}: {}", patchset_id, r);
-                        r
+                        (r, None)
                     },
                     BaselineResolution::RemoteTarget { url, name } => {
                         info!("Fetching remote baseline for {}: {} ({})", patchset_id, name, url);
                         let repo_path = PathBuf::from(&settings.git.repository_path);
-                        match ensure_remote(&repo_path, &name, &url).await {
-                            Ok(_) => format!("{}/master", name),
+                        match ensure_remote(&repo_path, &name, &url, false).await {
+                            Ok(_) => (format!("{}/master", name), Some((url, name))),
                             Err(e) => {
                                 error!("Failed to fetch remote {}: {}. Fallback to HEAD.", url, e);
-                                "HEAD".to_string()
+                                ("HEAD".to_string(), None)
                             }
                         }
                     }
                 };
 
-                match run_review_tool(patchset_id, &input_payload, &settings, db.clone(), &baseline_ref).await {
-                    Ok(status) => {
-                        info!("Review finished for {}: {}", patchset_id, status);
-                        if let Err(e) = db.update_patchset_status(patchset_id, &status).await {
-                            error!("Failed to update status for {}: {}", patchset_id, e);
-                        }
-                    },
+                let mut status = match run_review_tool(patchset_id, &input_payload, &settings, db.clone(), &baseline_ref).await {
+                    Ok(s) => s,
                     Err(e) => {
-                        error!("Review failed for {}: {}", patchset_id, e);
-                        if let Err(e) = db.update_patchset_status(patchset_id, "Failed").await {
-                            error!("Failed to update status for {}: {}", patchset_id, e);
+                        error!("Review execution failed for {}: {}", patchset_id, e);
+                        "Failed".to_string()
+                    }
+                };
+
+                // Retry logic if failed with remote baseline
+                if status == "Failed" {
+                    if let Some((url, name)) = remote_info {
+                        info!("Patchset {} failed with remote baseline. Forcing fetch and retrying...", patchset_id);
+                        let repo_path = PathBuf::from(&settings.git.repository_path);
+                        // Force fetch
+                        if let Ok(_) = ensure_remote(&repo_path, &name, &url, true).await {
+                             match run_review_tool(patchset_id, &input_payload, &settings, db.clone(), &baseline_ref).await {
+                                Ok(s) => {
+                                    info!("Retry result for {}: {}", patchset_id, s);
+                                    status = s;
+                                },
+                                Err(e) => {
+                                    error!("Retry failed for {}: {}", patchset_id, e);
+                                }
+                             }
                         }
                     }
+                }
+
+                info!("Review finished for {}: {}", patchset_id, status);
+                if let Err(e) = db.update_patchset_status(patchset_id, &status).await {
+                    error!("Failed to update status for {}: {}", patchset_id, e);
                 }
             });
         }

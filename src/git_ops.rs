@@ -200,7 +200,7 @@ impl Drop for GitWorktree {
     }
 }
 
-pub async fn ensure_remote(repo_path: &Path, name: &str, url: &str) -> Result<()> {
+pub async fn ensure_remote(repo_path: &Path, name: &str, url: &str, force_fetch: bool) -> Result<()> {
     // 1. Security Check
     if !url.contains("kernel.org") {
         return Err(anyhow!("Refusing to add non-kernel.org remote: {}", url));
@@ -235,7 +235,7 @@ pub async fn ensure_remote(repo_path: &Path, name: &str, url: &str) -> Result<()
     }
     let timestamp_file = timestamp_dir.join(name);
     
-    let should_fetch = if just_added {
+    let should_fetch = if just_added || force_fetch {
         true
     } else if let Ok(metadata) = std::fs::metadata(&timestamp_file) {
         if let Ok(modified) = metadata.modified() {
