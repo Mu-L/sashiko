@@ -22,12 +22,12 @@
     <h1>Sashiko Patch Tracker</h1>
 
     <div style="margin-top: 20px; margin-bottom: 20px; display: flex; gap: 10px;">
-        <input type="text" id="searchInput" placeholder="Search (subject, author:..., subject:..., date:...)" style="flex-grow: 1; padding: 5px;">
+        <input type="text" id="searchInput" placeholder="Search (subject, author:..., subject:..., date:...)" style="width: 450px; padding: 5px;">
         <button onclick="triggerSearch()">Search</button>
         <button onclick="clearSearch()">Clear</button>
     </div>
 
-    <div style="margin-top: 15px; margin-bottom: 10px; text-align: right;">
+    <div style="margin-top: 15px; margin-bottom: 10px;">
         <button id="btn-patchsets" onclick="setMode('patchsets')" disabled>Patchsets</button>
         <button id="btn-messages" onclick="setMode('messages')">Messages</button>
     </div>
