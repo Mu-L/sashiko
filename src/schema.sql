@@ -175,3 +175,4 @@ CREATE TABLE IF NOT EXISTS patchsets_tags (
     FOREIGN KEY(patchset_id) REFERENCES patchsets(id) ON DELETE CASCADE,
     FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_patchsets_cover_message_id ON patchsets(cover_letter_message_id);

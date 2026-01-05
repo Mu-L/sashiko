@@ -165,6 +165,9 @@ impl Database {
         let _ = self
             .try_add_column("messages", "mailing_list", "TEXT")
             .await;
+        let _ = self
+            .try_create_index("idx_patchsets_cover_message_id", "patchsets", "cover_letter_message_id")
+            .await;
 
         info!("Database schema applied");
         Ok(())
@@ -177,6 +180,16 @@ impl Database {
 
     pub async fn commit_transaction(&self) -> Result<()> {
         self.conn.execute("COMMIT", ()).await?;
+        Ok(())
+    }
+
+    async fn try_create_index(&self, index_name: &str, table: &str, column: &str) -> Result<()> {
+        let sql = format!("CREATE INDEX IF NOT EXISTS {} ON {}({})", index_name, table, column);
+        if let Err(e) = self.conn.execute(&sql, ()).await {
+            info!("Migration: Error creating index {}: {}", index_name, e);
+        } else {
+            info!("Migration: Ensured index {} exists", index_name);
+        }
         Ok(())
     }
 
