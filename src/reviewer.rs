@@ -130,19 +130,20 @@ impl Reviewer {
                 }
                 
                 let resolution = baseline_registry.resolve_baseline(&all_files, &subject);
-                let (baseline_ref, remote_info) = match resolution {
+                let (baseline_ref, remote_info, fetch_warning) = match resolution {
                     BaselineResolution::LocalRef(r) => {
                         info!("Using local baseline for {}: {}", patchset_id, r);
-                        (r, None)
+                        (r, None, None)
                     },
                     BaselineResolution::RemoteTarget { url, name } => {
                         info!("Fetching remote baseline for {}: {} ({})", patchset_id, name, url);
                         let repo_path = PathBuf::from(&settings.git.repository_path);
                         match ensure_remote(&repo_path, &name, &url, false).await {
-                            Ok(_) => (format!("{}/master", name), Some((url, name))),
+                            Ok(_) => (format!("{}/master", name), Some((url, name)), None),
                             Err(e) => {
-                                error!("Failed to fetch remote {}: {}. Fallback to HEAD.", url, e);
-                                ("HEAD".to_string(), None)
+                                let msg = format!("Failed to fetch remote {}: {}. Fallback to HEAD.", url, e);
+                                error!("{}", msg);
+                                ("HEAD".to_string(), None, Some(msg))
                             }
                         }
                     }
@@ -173,6 +174,10 @@ impl Reviewer {
                     }
                 };
 
+                if let Some(warning) = fetch_warning {
+                    description = format!("{} [Warning: {}]", description, warning);
+                }
+
                 // Retry logic
                 if status == "Failed" {
                     if let Some((url, name)) = remote_info {
@@ -186,7 +191,7 @@ impl Reviewer {
                                 },
                                 Err(e) => {
                                     error!("Retry failed for {}: {}", patchset_id, e);
-                                    description = format!("Retry error: {}", e);
+                                    description = format!("{} [Retry error: {}]", description, e);
                                 }
                              }
                         }
