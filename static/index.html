@@ -268,8 +268,11 @@
                     row.style.cursor = 'pointer';
 
                     let tagsHtml = '';
-                    if (p.subsystems && p.subsystems.length > 0) {
-                        tagsHtml = '<br>' + p.subsystems.map(s => `<span class="tag">${s}</span>`).join('');
+                    if (p.subsystems && Array.isArray(p.subsystems) && p.subsystems.length > 0) {
+                        tagsHtml = '<div style="margin-top: 4px;">' + p.subsystems.map(s => `<span class="tag">${s}</span>`).join('') + '</div>';
+                    } else {
+                        // Debugging: why empty?
+                        // console.log('No subsystems for', p.id, p.subsystems);
                     }
 
                     row.innerHTML = `
