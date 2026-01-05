@@ -36,6 +36,7 @@
 - [x] **Task**: Implement `sashiko-review` agent with Gemini 3 Pro and Git Tools.
 - [x] **Task**: Integrate reviewer tool into main Sashiko loop (concurrent processing).
 - [x] **Task**: Implement Chain-of-Thought prompting and structured JSON output for reviews.
+- [x] **Task**: Implement retry logic for AI review generation failures when patches apply successfully.
 - [ ] **Task**: Implement "Critic" self-correction loop for review validation.
 
 ## Phase 4: Web API & Frontend
