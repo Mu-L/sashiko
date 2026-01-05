@@ -255,7 +255,8 @@
                     
                     row.onclick = (e) => {
                         if (e.target.closest('.copy-btn')) return;
-                        window.location.href = `/static/details.html?id=${encodeURIComponent(p.id)}`;
+                        const linkId = encodeURIComponent(p.message_id || p.id);
+                        window.location.href = `/static/details.html?id=${linkId}`;
                     };
                     row.style.cursor = 'pointer';
 

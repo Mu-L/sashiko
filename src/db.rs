@@ -94,6 +94,44 @@ impl Database {
         }
     }
 
+    pub async fn get_message_details_by_msgid(&self, msg_id: &str) -> Result<Option<MessageRow>> {
+        let mut rows = self.conn.query(
+            "SELECT id FROM messages WHERE message_id = ?",
+             libsql::params![msg_id],
+        ).await?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            let id: i64 = row.get(0)?;
+            self.get_message_details(id).await
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn get_patchset_details_by_msgid(&self, msg_id: &str) -> Result<Option<serde_json::Value>> {
+        // 1. Try to find a patchset where this is the cover letter
+        let mut rows = self.conn.query(
+            "SELECT id FROM patchsets WHERE cover_letter_message_id = ?",
+             libsql::params![msg_id],
+        ).await?;
+        if let Ok(Some(row)) = rows.next().await {
+            let id: i64 = row.get(0)?;
+            return self.get_patchset_details(id).await;
+        }
+
+        // 2. Fallback: Find a patchset that contains this message as a patch
+        let mut rows = self.conn.query(
+            "SELECT patchset_id FROM patches WHERE message_id = ?",
+             libsql::params![msg_id],
+        ).await?;
+        if let Ok(Some(row)) = rows.next().await {
+            let id: i64 = row.get(0)?;
+            return self.get_patchset_details(id).await;
+        }
+
+        Ok(None)
+    }
+
     pub async fn new(settings: &DatabaseSettings) -> Result<Self> {
         info!("Connecting to database at {}", settings.url);
 

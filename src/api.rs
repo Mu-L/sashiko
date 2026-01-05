@@ -128,17 +128,18 @@ async fn get_patchset(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PatchQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let id_val = query
-        .id
-        .parse::<i64>()
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let result = if let Ok(id_val) = query.id.parse::<i64>() {
+        info!("Fetching details for patchset id: {}", id_val);
+        state.db.get_patchset_details(id_val).await
+    } else {
+        info!("Fetching details for patchset msgid: {}", query.id);
+        state.db.get_patchset_details_by_msgid(&query.id).await
+    };
 
-    info!("Fetching details for patchset id: {}", id_val);
-
-    match state.db.get_patchset_details(id_val).await {
+    match result {
         Ok(Some(details)) => Ok(Json(details)),
         Ok(None) => {
-            info!("Patchset not found: {}", id_val);
+            info!("Patchset not found: {}", query.id);
             Err(StatusCode::NOT_FOUND)
         }
         Err(e) => {
@@ -152,14 +153,15 @@ async fn get_message(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PatchQuery>,
 ) -> Result<Json<crate::db::MessageRow>, StatusCode> {
-    let id_val = query
-        .id
-        .parse::<i64>()
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let result = if let Ok(id_val) = query.id.parse::<i64>() {
+        info!("Fetching details for message id: {}", id_val);
+        state.db.get_message_details(id_val).await
+    } else {
+        info!("Fetching details for message msgid: {}", query.id);
+        state.db.get_message_details_by_msgid(&query.id).await
+    };
 
-    info!("Fetching details for message id: {}", id_val);
-
-    match state.db.get_message_details(id_val).await {
+    match result {
         Ok(Some(mut details)) => {
             if details.body.is_none() || details.body.as_deref() == Some("") {
                 if let (Some(hash), Some(group)) = (&details.git_blob_hash, &details.mailing_list) {
@@ -206,7 +208,7 @@ async fn get_message(
             Ok(Json(details))
         }
         Ok(None) => {
-            info!("Message not found: {}", id_val);
+            info!("Message not found: {}", query.id);
             Err(StatusCode::NOT_FOUND)
         }
         Err(e) => {
