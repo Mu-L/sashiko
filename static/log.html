@@ -47,42 +47,73 @@
                 border-top: 1px solid var(--color-border-default);
             }
     
-            .log-entry {
-                padding: 15px 0;
-                border-bottom: 1px solid var(--color-border-muted);
-                display: flex;
-                gap: 15px;
-            }
-    
-            /* Remove hover effect for cleaner look */
-            /* .log-entry:hover { background-color: #fbfcfd; } */
-    
-            /* Minimalist Role Indicators */
-            .role-icon {
-                flex-shrink: 0;
-                width: 20px;
-                text-align: right;
-                font-weight: bold;
-                font-size: 1.2em;
-                user-select: none;
-                color: var(--color-fg-muted);
-            }
+                    .log-entry {
+                        padding: 15px 0;
+                        border-bottom: 1px solid var(--color-border-muted);
+                        display: flex;
+                        gap: 15px;
+                    }
             
-            .role-user .role-icon { color: var(--color-role-user); }
-            .role-model .role-icon { color: var(--color-role-model); }
-            .role-tool .role-icon { color: var(--color-role-tool); }
-    
-            .content { flex-grow: 1; min-width: 0; overflow-wrap: break-word; }
-    
-            .role-label {
-                font-size: 0.85em;
-                font-weight: bold;
-                color: var(--color-fg-muted);
-                margin-bottom: 5px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .role-user .role-label { color: var(--color-role-user); }
+                    /* Role: Model (Right Aligned) */
+                    .log-entry.role-model {
+                        flex-direction: row-reverse;
+                        text-align: right;
+                    }
+            
+                    /* Remove hover effect for cleaner look */
+                    /* .log-entry:hover { background-color: #fbfcfd; } */
+            
+                    /* Minimalist Role Indicators */
+                    .log-entry { position: relative; }
+                    
+                    .log-entry::before {
+                        content: '';
+                        position: absolute;
+                        top: 0; bottom: 0;
+                        width: 4px;
+                    }
+                    
+                    /* User/Tool: Left Border */
+                    .log-entry.role-user::before, .log-entry.role-tool::before {
+                        left: 0;
+                    }
+                    .role-user::before { background-color: var(--color-role-user); }
+                    .role-tool::before { background-color: var(--color-role-tool); }
+            
+                    /* Model: Right Border */
+                    .log-entry.role-model::before {
+                        right: 0;
+                        background-color: var(--color-role-model);
+                    }
+            
+                    .role-icon {
+                        flex-shrink: 0;
+                        width: 20px;
+                        text-align: center; /* Center the icon in its slot */
+                        font-weight: bold;
+                        font-size: 1.2em;
+                        user-select: none;
+                        color: var(--color-fg-muted);
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: flex-start;
+                        padding-top: 2px;
+                    }
+                    
+                    .role-user .role-icon { color: var(--color-role-user); }
+                    .role-model .role-icon { color: var(--color-role-model); }
+                    .role-tool .role-icon { color: var(--color-role-tool); }
+            
+                    .content { flex-grow: 1; min-width: 0; overflow-wrap: break-word; }
+            
+                    .role-label {
+                        font-size: 0.85em;
+                        font-weight: bold;
+                        color: var(--color-fg-muted);
+                        margin-bottom: 5px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }            .role-user .role-label { color: var(--color-role-user); }
             .role-model .role-label { color: var(--color-role-model); }
             .role-tool .role-label { color: var(--color-role-tool); }
     
