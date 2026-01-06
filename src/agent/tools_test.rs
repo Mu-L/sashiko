@@ -41,24 +41,6 @@ mod tests {
     }
 
     #[test]
-    fn test_read_prompt_identity() {
-        let (linux_path, prompts_path) = get_test_paths();
-        let toolbox = ToolBox::new(linux_path, prompts_path);
-        let rt = Runtime::new().unwrap();
-
-        // Testing a known file, adjust if filename is different
-        // Based on previous `ls review-prompts`: review-core.md seems likely or similar
-        // Let's check `ls review-prompts` result from earlier:
-        // block.md, bpf.md ... review-core.md, review-one.md
-        // Let's try reading `review-core.md`
-        let args = json!({ "name": "review-core.md" });
-        let result = rt.block_on(toolbox.call("read_prompt", args)).unwrap();
-        let content = result["content"].as_str().unwrap();
-
-        assert!(!content.is_empty());
-    }
-
-    #[test]
     fn test_git_show_head() {
         let (linux_path, prompts_path) = get_test_paths();
         let toolbox = ToolBox::new(linux_path, prompts_path);
@@ -93,7 +75,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let worktree_path = temp_dir.path().to_path_buf();
         let prompts_path = root.join("review-prompts");
-        let toolbox = ToolBox::new(worktree_path.clone(), prompts_path);
+        let toolbox = ToolBox::new(worktree_path.clone());
         let rt = Runtime::new().unwrap();
 
         let filename = "test-write.txt";

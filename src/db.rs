@@ -1,5 +1,5 @@
-use crate::settings::DatabaseSettings;
 use crate::ReviewStatus;
+use crate::settings::DatabaseSettings;
 use anyhow::Result;
 use libsql::Builder;
 use serde::Serialize;
@@ -1444,14 +1444,17 @@ impl Database {
         &self,
         patchset_id: i64,
     ) -> Result<Vec<(i64, i64, String, String, String, i64)>> {
-        let mut rows = self.conn.query(
-            "SELECT p.id, p.part_index, p.diff, m.subject, m.author, m.date 
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT p.id, p.part_index, p.diff, m.subject, m.author, m.date 
              FROM patches p 
              JOIN messages m ON p.message_id = m.message_id 
              WHERE p.patchset_id = ? 
              ORDER BY p.part_index ASC",
-            libsql::params![patchset_id],
-        ).await?;
+                libsql::params![patchset_id],
+            )
+            .await?;
 
         let mut diffs = Vec::new();
         while let Ok(Some(row)) = rows.next().await {
@@ -1525,12 +1528,16 @@ impl Database {
                 (),
             )
             .await?;
-        
+
         // Reset Reviews
         let count_rev = self
             .conn
             .execute(
-                format!("UPDATE reviews SET status = '{}' WHERE status IN ('Applying', 'In Review')", status_cancelled).as_str(),
+                format!(
+                    "UPDATE reviews SET status = '{}' WHERE status IN ('Applying', 'In Review')",
+                    status_cancelled
+                )
+                .as_str(),
                 (),
             )
             .await?;

@@ -362,7 +362,7 @@ mod tests {
             .unwrap()
             .take()
             .expect("create_cached_content SHOULD be called when model mismatches");
-        
+
         assert_eq!(request.model, "models/gemini-right");
     }
 }

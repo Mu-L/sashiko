@@ -218,7 +218,7 @@ async fn main() -> Result<()> {
 
             let client = Box::new(sashiko::ai::gemini::StdioGeminiClient);
 
-            let tools = ToolBox::new(worktree.path.clone(), args.prompts.clone());
+            let tools = ToolBox::new(worktree.path.clone());
             let prompts = PromptRegistry::new(args.prompts.clone());
             let mut agent = Agent::new(
                 client,

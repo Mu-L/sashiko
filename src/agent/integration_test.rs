@@ -151,7 +151,7 @@ mod tests {
             &format!("```json\n{}\n```", mock_response),
         )]));
 
-        let tools = ToolBox::new(linux_path, prompts_path);
+        let tools = ToolBox::new(linux_path);
         let prompts = PromptRegistry::new(PathBuf::from("review-prompts"));
         let mut agent = Agent::new(client, tools, prompts, 150_000, None);
 
@@ -188,7 +188,7 @@ mod tests {
             create_text_response(&format!("```json\n{}\n```", final_response)),
         ]));
 
-        let tools = ToolBox::new(linux_path, prompts_path);
+        let tools = ToolBox::new(linux_path);
         let prompts = PromptRegistry::new(PathBuf::from("review-prompts"));
         let mut agent = Agent::new(client, tools, prompts, 150_000, None);
 

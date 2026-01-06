@@ -1,3 +1,4 @@
+use crate::ReviewStatus;
 use crate::ai::cache::CacheManager;
 use crate::ai::gemini::{
     GeminiClient, GenerateContentRequest, GenerateContentWithCacheRequest, QuotaError,
@@ -7,7 +8,6 @@ use crate::baseline::{BaselineRegistry, BaselineResolution, extract_files_from_d
 use crate::db::{AiInteractionParams, Database};
 use crate::git_ops::{ensure_remote, get_commit_hash};
 use crate::settings::Settings;
-use crate::ReviewStatus;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -68,7 +68,7 @@ impl Reviewer {
         // We need tool definitions for the cache.
         // We use dummy paths for ToolBox here because we only need declarations,
         // not execution capability.
-        let tools_def = ToolBox::new(PathBuf::from("."), PathBuf::from(".")).get_declarations();
+        let tools_def = ToolBox::new(PathBuf::from(".")).get_declarations();
 
         let cache_manager = Arc::new(CacheManager::new(
             prompts_dir,
@@ -168,7 +168,10 @@ impl Reviewer {
 
                 info!("Starting review for patchset {}", patchset_id);
 
-                if let Err(e) = db.update_patchset_status(patchset_id, ReviewStatus::Applying.as_str()).await {
+                if let Err(e) = db
+                    .update_patchset_status(patchset_id, ReviewStatus::Applying.as_str())
+                    .await
+                {
                     error!(
                         "Failed to update status to Applying for {}: {}",
                         patchset_id, e
@@ -329,7 +332,13 @@ impl Reviewer {
                                 }
                             };
 
-                            let _ = db.update_review_status(review_id, ReviewStatus::Applying.as_str(), None).await;
+                            let _ = db
+                                .update_review_status(
+                                    review_id,
+                                    ReviewStatus::Applying.as_str(),
+                                    None,
+                                )
+                                .await;
 
                             // Run tool for SPECIFIC patch index
                             match run_review_tool(
@@ -493,7 +502,8 @@ impl Reviewer {
                                                 retries += 1;
                                                 continue;
                                             }
-                                            final_status = ReviewStatus::Failed.as_str().to_string();
+                                            final_status =
+                                                ReviewStatus::Failed.as_str().to_string();
                                             break;
                                         }
                                     } else {
@@ -685,7 +695,13 @@ async fn run_review_tool(
                     if let Some(type_str) = json_msg.get("type").and_then(|v| v.as_str()) {
                         if type_str == "ai_request" {
                             if !ai_started {
-                                let _ = db.update_review_status(review_id, ReviewStatus::InReview.as_str(), None).await;
+                                let _ = db
+                                    .update_review_status(
+                                        review_id,
+                                        ReviewStatus::InReview.as_str(),
+                                        None,
+                                    )
+                                    .await;
                                 ai_started = true;
                             }
                             if let Some(payload_val) = json_msg.get("payload") {
@@ -723,8 +739,14 @@ async fn run_review_tool(
                                 }
                             }
                         } else if type_str == "ai_request_with_cache" {
-                             if !ai_started {
-                                let _ = db.update_review_status(review_id, ReviewStatus::InReview.as_str(), None).await;
+                            if !ai_started {
+                                let _ = db
+                                    .update_review_status(
+                                        review_id,
+                                        ReviewStatus::InReview.as_str(),
+                                        None,
+                                    )
+                                    .await;
                                 ai_started = true;
                             }
                             if let Some(payload_val) = json_msg.get("payload") {

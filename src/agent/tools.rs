@@ -8,15 +8,11 @@ use tokio::process::Command;
 
 pub struct ToolBox {
     worktree_path: PathBuf,
-    prompts_dir: PathBuf,
 }
 
 impl ToolBox {
-    pub fn new(worktree_path: PathBuf, prompts_dir: PathBuf) -> Self {
-        Self {
-            worktree_path,
-            prompts_dir,
-        }
+    pub fn new(worktree_path: PathBuf) -> Self {
+        Self { worktree_path }
     }
 
     pub fn get_declarations(&self) -> Tool {
@@ -365,16 +361,6 @@ impl ToolBox {
         }
 
         Ok(json!({ "entries": entries }))
-    }
-
-    async fn read_prompt(&self, args: Value) -> Result<Value> {
-        let name = args["name"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing name"))?;
-        let path = self.validate_path(name, &self.prompts_dir)?;
-
-        let content = fs::read_to_string(path).await?;
-        Ok(json!({ "content": content }))
     }
 
     fn validate_path(&self, relative: &str, base: &Path) -> Result<PathBuf> {
