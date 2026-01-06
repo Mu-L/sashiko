@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     created_at INTEGER,
     interaction_id TEXT,
     baseline_id INTEGER,
-    status TEXT DEFAULT 'Pending', -- Pending, Applying, Analyzing, Completed, Failed
+    status TEXT DEFAULT 'Pending', -- Pending, Failed to apply, In review, Finished, Failed
     logs TEXT,
     inline_review TEXT,
     FOREIGN KEY(patchset_id) REFERENCES patchsets(id),

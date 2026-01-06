@@ -235,7 +235,7 @@ impl Reviewer {
 
                 for candidate in candidates {
                     let baseline_ref = candidate.as_str();
-                    let fetch_warning = match &candidate {
+                    let _fetch_warning = match &candidate {
                         BaselineResolution::Commit(h) => {
                             info!("Using base-commit for {}: {}", patchset_id, h);
                             Option::<String>::None
@@ -320,20 +320,6 @@ impl Reviewer {
                                 }
                             };
 
-                            if let Some(warning) = &fetch_warning {
-                                let _ = db
-                                    .update_review_status(
-                                        review_id,
-                                        "Applying Patches",
-                                        Some(warning.as_str()),
-                                    )
-                                    .await;
-                            } else {
-                                let _ = db
-                                    .update_review_status(review_id, "Applying Patches", None)
-                                    .await;
-                            }
-
                             // Run tool for SPECIFIC patch index
                             match run_review_tool(
                                 patchset_id,
@@ -344,6 +330,7 @@ impl Reviewer {
                                 Some(*index),
                                 quota_manager.clone(),
                                 cache_name.as_deref(),
+                                review_id,
                             )
                             .await
                             {
@@ -509,14 +496,14 @@ impl Reviewer {
                                         let _ = db
                                             .update_review_status(
                                                 review_id,
-                                                "Failed",
+                                                "Failed to apply",
                                                 Some(&patches_debug),
                                             )
                                             .await;
                                         let _ = db
                                             .complete_review(
                                                 review_id,
-                                                "Failed",
+                                                "Failed to apply",
                                                 error_msg,
                                                 None,
                                                 None,
@@ -595,6 +582,7 @@ async fn run_review_tool(
     review_index: Option<i64>,
     quota_manager: Arc<QuotaManager>,
     cache_name: Option<&str>,
+    review_id: i64,
 ) -> Result<serde_json::Value> {
     let exe_path = std::env::current_exe()?;
     let bin_dir = exe_path
@@ -678,12 +666,17 @@ async fn run_review_tool(
                 settings.ai.rate_limit_tokens_per_minute,
             );
             let mut final_result: Option<Value> = None;
+            let mut ai_started = false;
 
             while let Ok(Some(line)) = lines.next_line().await {
                 // Try to parse as JSON
                 if let Ok(json_msg) = serde_json::from_str::<Value>(&line) {
                     if let Some(type_str) = json_msg.get("type").and_then(|v| v.as_str()) {
                         if type_str == "ai_request" {
+                            if !ai_started {
+                                let _ = db.update_review_status(review_id, "In review", None).await;
+                                ai_started = true;
+                            }
                             if let Some(payload_val) = json_msg.get("payload") {
                                 if let Ok(req) = serde_json::from_value::<GenerateContentRequest>(
                                     payload_val.clone(),
@@ -719,6 +712,10 @@ async fn run_review_tool(
                                 }
                             }
                         } else if type_str == "ai_request_with_cache" {
+                             if !ai_started {
+                                let _ = db.update_review_status(review_id, "In review", None).await;
+                                ai_started = true;
+                            }
                             if let Some(payload_val) = json_msg.get("payload") {
                                 if let Ok(req) =
                                     serde_json::from_value::<GenerateContentWithCacheRequest>(
