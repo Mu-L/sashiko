@@ -723,6 +723,24 @@
             }
         }
 
+        function sortToolArgs(entries) {
+            const priorityKeys = ['file_path', 'path', 'dir_path', 'filename', 'pattern', 'command', 'instruction', 'old_string', 'new_string', 'content', 'objective', 'fact'];
+
+            function getKeyKey(k) {
+                const pIdx = priorityKeys.indexOf(k);
+                if (pIdx !== -1) return String.fromCharCode(32 + pIdx);
+                if (k.startsWith('start_')) return k.substring(6) + '_0';
+                if (k.startsWith('end_')) return k.substring(4) + '_1';
+                return 'z' + k;
+            }
+
+            return entries.sort((a, b) => {
+                const ka = getKeyKey(a[0]);
+                const kb = getKeyKey(b[0]);
+                return ka.localeCompare(kb);
+            });
+        }
+
         // =====================================================================
         // LIST VIEW
         // =====================================================================
@@ -1254,7 +1272,12 @@
             if (typeof args === 'string') { try { args = JSON.parse(args); } catch (e) { return escapeHtml(args); } }
             if (!args || typeof args !== 'object') return '';
 
-            const preview = Object.entries(args).map(([k, v]) => {
+            let entries = Object.entries(args);
+            if (typeof sortToolArgs === 'function') {
+                entries = sortToolArgs(entries);
+            }
+
+            const preview = entries.map(([k, v]) => {
                 let valStr = JSON.stringify(v);
                 if (valStr?.length > 40) valStr = valStr.substring(0, 37) + '...';
                 return `${k}=${valStr}`;
