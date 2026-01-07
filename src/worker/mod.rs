@@ -174,7 +174,10 @@ impl Worker {
             if turns > self.max_interactions {
                 return Ok(WorkerResult {
                     output: None,
-                    error: Some(format!("Worker exceeded maximum turns ({})", self.max_interactions)),
+                    error: Some(format!(
+                        "Worker exceeded maximum turns ({})",
+                        self.max_interactions
+                    )),
                     input_context,
                     history: self.history.clone(),
                     tokens_in: total_tokens_in,

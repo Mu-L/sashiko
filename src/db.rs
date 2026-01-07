@@ -2825,4 +2825,146 @@ mod tests {
             "Should merge even if subject contains 'v2'"
         );
     }
+
+    #[tokio::test]
+    async fn test_merge_patchsets_with_dependencies() {
+        let db = setup_db().await;
+        let thread_id = db
+            .create_thread("root_deps", "Dependencies Test", 90000)
+            .await
+            .unwrap();
+        let author = "Deps Author <deps@example.com>";
+
+        // 1. Create first patchset part [PATCH 1/2]
+        db.create_message(
+            "msg_deps_1",
+            thread_id,
+            None,
+            author,
+            "[PATCH 1/2] Part 1",
+            90000,
+            "",
+            "",
+            "",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let ps1 = db
+            .create_patchset(
+                thread_id,
+                None,
+                "[PATCH 1/2] Part 1",
+                author,
+                90000,
+                2,
+                1,
+                "",
+                "",
+                None,
+                1,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        // 2. Add dependencies to ps1 (Review, Tag, Subsystem)
+        let review_id = db
+            .create_review(ps1, None, "test_provider", "test_model", None, None)
+            .await
+            .unwrap();
+
+        let tag_id = db.ensure_tag("test_tag").await.unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO patchsets_tags (patchset_id, tag_id) VALUES (?, ?)",
+                libsql::params![ps1, tag_id],
+            )
+            .await
+            .unwrap();
+
+        let sub_id = db
+            .ensure_subsystem("test_sub", "test@example.com")
+            .await
+            .unwrap();
+        db.add_subsystem_to_patchset(ps1, sub_id).await.unwrap();
+
+        // 3. Create second patchset part [PATCH 2/2] -> Should merge into ps1 (or ps1 into ps2, but we keep oldest ID so ps2 into ps1)
+        // ps1 ID should be preserved because it was created first.
+        db.create_message(
+            "msg_deps_2",
+            thread_id,
+            None,
+            author,
+            "[PATCH 2/2] Part 2",
+            90005,
+            "",
+            "",
+            "",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let ps2 = db
+            .create_patchset(
+                thread_id,
+                None,
+                "[PATCH 2/2] Part 2",
+                author,
+                90005, // Close enough
+                2,
+                1,
+                "",
+                "",
+                None,
+                2,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(ps1, ps2, "Patchsets should have merged");
+
+        // 4. Verify dependencies moved
+        // Check review
+        let mut rows = db
+            .conn
+            .query(
+                "SELECT patchset_id FROM reviews WHERE id = ?",
+                libsql::params![review_id],
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().unwrap();
+        let review_ps_id: i64 = row.get(0).unwrap();
+        assert_eq!(review_ps_id, ps1);
+
+        // Check subsystem
+        let mut rows = db
+            .conn
+            .query(
+                "SELECT count(*) FROM patchsets_subsystems WHERE patchset_id = ?",
+                libsql::params![ps1],
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().unwrap();
+        let count: i64 = row.get(0).unwrap();
+        assert_eq!(count, 1);
+
+        // Check tag
+        let mut rows = db
+            .conn
+            .query(
+                "SELECT count(*) FROM patchsets_tags WHERE patchset_id = ?",
+                libsql::params![ps1],
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().unwrap();
+        let count: i64 = row.get(0).unwrap();
+        assert_eq!(count, 1);
+    }
 }

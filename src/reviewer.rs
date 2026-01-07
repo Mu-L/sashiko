@@ -949,12 +949,12 @@ async fn run_review_tool(
                         Some("Review tool timed out"),
                     )
                     .await
-                {
-                    error!(
-                        "Failed to update patch status for ps={} idx={}: {}",
-                        patchset_id, idx, e
-                    );
-                }
+            {
+                error!(
+                    "Failed to update patch status for ps={} idx={}: {}",
+                    patchset_id, idx, e
+                );
+            }
 
             Err(anyhow::anyhow!("Review tool timed out"))
         }

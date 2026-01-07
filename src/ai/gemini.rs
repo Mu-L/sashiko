@@ -403,14 +403,15 @@ impl GenAiClient for GeminiClient {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
                     if let Some(gemini_err) = e.downcast_ref::<GeminiError>()
-                        && let GeminiError::QuotaExceeded(sleep_duration) = gemini_err {
-                            tracing::warn!(
-                                "Gemini API quota exceeded. Retrying in {:.2}s...",
-                                sleep_duration.as_secs_f64()
-                            );
-                            sleep(*sleep_duration).await;
-                            continue;
-                        }
+                        && let GeminiError::QuotaExceeded(sleep_duration) = gemini_err
+                    {
+                        tracing::warn!(
+                            "Gemini API quota exceeded. Retrying in {:.2}s...",
+                            sleep_duration.as_secs_f64()
+                        );
+                        sleep(*sleep_duration).await;
+                        continue;
+                    }
                     return Err(e);
                 }
             }
@@ -470,14 +471,15 @@ impl GenAiClient for GeminiClient {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
                     if let Some(gemini_err) = e.downcast_ref::<GeminiError>()
-                        && let GeminiError::QuotaExceeded(sleep_duration) = gemini_err {
-                            tracing::warn!(
-                                "Gemini API quota exceeded (cache). Retrying in {:.2}s...",
-                                sleep_duration.as_secs_f64()
-                            );
-                            sleep(*sleep_duration).await;
-                            continue;
-                        }
+                        && let GeminiError::QuotaExceeded(sleep_duration) = gemini_err
+                    {
+                        tracing::warn!(
+                            "Gemini API quota exceeded (cache). Retrying in {:.2}s...",
+                            sleep_duration.as_secs_f64()
+                        );
+                        sleep(*sleep_duration).await;
+                        continue;
+                    }
                     return Err(e);
                 }
             }
