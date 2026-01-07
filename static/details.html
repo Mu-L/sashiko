@@ -238,12 +238,15 @@
 
                     return `
                         <div class="review-card">
-                            <div class="review-header" style="border-bottom: none; padding-bottom: 0;">
-                                <div class="status-badge ${statusClass}" style="margin-left: auto;">${status}</div>
-                            </div>
-                            
                             <div class="review-meta">
-                                <div class="review-meta-label">Date:</div><div>${rDate}</div>
+                                <div class="review-meta-label">Date:</div>
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span>${rDate}</span>
+                                    <span>
+                                        <span class="status-badge ${statusClass}">${status}</span>
+                                        <a href="/static/log.html?id=${r.id}" style="margin-left: 8px; font-size: 0.9em;">View Raw Log</a>
+                                    </span>
+                                </div>
                                 <div class="review-meta-label">Baseline:</div><div>${baselineStr}</div>
                                 <div class="review-meta-label">Model:</div><div>${providerModel}</div>
                                 <div class="review-meta-label">Result:</div><div style="${resultStyle}">${escapeHtml(statusText)}</div>
@@ -251,10 +254,6 @@
 
                             ${inlineSection}
                             ${traceHtml}
-                            
-                             <div style="margin-top: 10px; font-size: 0.85em; text-align: right;">
-                                <a href="/static/log.html?id=${r.id}">View Raw Log</a>
-                            </div>
                         </div>
                     `;
                 }).join('');
