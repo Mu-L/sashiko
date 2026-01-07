@@ -172,7 +172,7 @@ mod tests {
         let (linux_path, prompts_path) = get_test_paths();
 
         // Sequence of responses:
-        // 1. Tool call: read_file("README")
+        // 1. Tool call: read_files([{"path": "README"}])
         // 2. Final JSON response (after receiving tool output)
 
         let final_response = json!({
@@ -184,7 +184,7 @@ mod tests {
         });
 
         let client = Box::new(StatefulMockClient::new(vec![
-            create_tool_call_response("read_file", json!({"path": "README"})),
+            create_tool_call_response("read_files", json!({ "files": [{ "path": "README" }] })),
             create_text_response(&format!("```json\n{}\n```", final_response)),
         ]));
 
@@ -216,16 +216,18 @@ mod tests {
 
         let tool_call = &result.history[1];
         if let Part::FunctionCall { function_call, .. } = &tool_call.parts[0] {
-            assert_eq!(function_call.name, "read_file");
+            assert_eq!(function_call.name, "read_files");
         } else {
             panic!("Expected tool call in history[1]");
         }
 
         let tool_res = &result.history[2];
         if let Part::FunctionResponse { function_response } = &tool_res.parts[0] {
-            assert_eq!(function_response.name, "read_file");
+            assert_eq!(function_response.name, "read_files");
             // Verify content is from the actual README file on disk
-            let content_str = function_response.response["content"].as_str().unwrap();
+            let results = function_response.response["results"].as_array().unwrap();
+            assert_eq!(results.len(), 1);
+            let content_str = results[0]["content"].as_str().unwrap();
             assert!(
                 content_str.contains("Linux kernel"),
                 "README content should contain 'Linux kernel'"

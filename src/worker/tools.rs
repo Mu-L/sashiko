@@ -19,18 +19,28 @@ impl ToolBox {
         Tool {
             function_declarations: vec![
                 FunctionDeclaration {
-                    name: "read_file".to_string(),
-                    description: "Read the content of a file. In 'smart' mode, it collapses irrelevant code around the focus lines."
+                    name: "read_files".to_string(),
+                    description: "Read the content of one or more files. In 'smart' mode, it collapses irrelevant code around the focus lines."
                         .to_string(),
                     parameters: json!({
                         "type": "object",
                         "properties": {
-                            "path": { "type": "string", "description": "Relative path to the file." },
-                            "start_line": { "type": "integer", "description": "1-based start line (optional). In smart mode, this is the start of the focus area." },
-                            "end_line": { "type": "integer", "description": "1-based end line (optional). In smart mode, this is the end of the focus area." },
+                            "files": {
+                                "type": "array",
+                                "description": "List of files to read.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "path": { "type": "string", "description": "Relative path to the file." },
+                                        "start_line": { "type": "integer", "description": "1-based start line (optional). In smart mode, this is the start of the focus area." },
+                                        "end_line": { "type": "integer", "description": "1-based end line (optional). In smart mode, this is the end of the focus area." }
+                                    },
+                                    "required": ["path"]
+                                }
+                            },
                             "mode": { "type": "string", "enum": ["raw", "smart"], "description": "Read mode. Defaults to 'raw'." }
                         },
-                        "required": ["path"]
+                        "required": ["files"]
                     }),
                 },
                 FunctionDeclaration {
@@ -129,7 +139,7 @@ impl ToolBox {
 
     pub async fn call(&self, name: &str, args: Value) -> Result<Value> {
         match name {
-            "read_file" => self.read_file(args).await,
+            "read_files" => self.read_files(args).await,
             "write_file" => self.write_file(args).await,
             "git_blame" => self.git_blame(args).await,
             "git_diff" => self.git_diff(args).await,
@@ -147,14 +157,44 @@ impl ToolBox {
         Truncator::truncate_diff(&output, 10_000)
     }
 
-    async fn read_file(&self, args: Value) -> Result<Value> {
-        let path_str = args["path"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing path"))?;
-        let start_line = args["start_line"].as_u64().map(|v| v as usize);
-        let end_line = args["end_line"].as_u64().map(|v| v as usize);
+    async fn read_files(&self, args: Value) -> Result<Value> {
+        let files = args["files"]
+            .as_array()
+            .ok_or_else(|| anyhow!("Missing files"))?;
         let mode = args["mode"].as_str().unwrap_or("raw");
 
+        let mut results = Vec::new();
+
+        for file_args in files {
+            let path_str = file_args["path"].as_str().unwrap_or_default();
+            if path_str.is_empty() {
+                 results.push(json!({ "error": "Missing path" }));
+                 continue;
+            }
+            
+            let start_line = file_args["start_line"].as_u64().map(|v| v as usize);
+            let end_line = file_args["end_line"].as_u64().map(|v| v as usize);
+
+            match self.read_single_file(path_str, start_line, end_line, mode).await {
+                Ok(mut val) => {
+                     if let Some(obj) = val.as_object_mut() {
+                         obj.insert("path".to_string(), json!(path_str));
+                     }
+                     results.push(val);
+                },
+                Err(e) => {
+                    results.push(json!({
+                        "path": path_str,
+                        "error": e.to_string()
+                    }));
+                }
+            }
+        }
+        
+        Ok(json!({ "results": results }))
+    }
+
+    async fn read_single_file(&self, path_str: &str, start_line: Option<usize>, end_line: Option<usize>, mode: &str) -> Result<Value> {
         let path = self.validate_path(path_str, &self.worktree_path)?;
         let content = fs::read_to_string(path).await?;
 

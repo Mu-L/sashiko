@@ -27,14 +27,21 @@ mod tests {
     }
 
     #[test]
-    fn test_read_file_linux_readme() {
+    fn test_read_files_linux_readme() {
         let (linux_path, _prompts_path) = get_test_paths();
         let toolbox = ToolBox::new(linux_path);
         let rt = Runtime::new().unwrap();
 
-        let args = json!({ "path": "README", "start_line": 1, "end_line": 5 });
-        let result = rt.block_on(toolbox.call("read_file", args)).unwrap();
-        let content = result["content"].as_str().unwrap();
+        let args = json!({
+            "files": [
+                { "path": "README", "start_line": 1, "end_line": 5 }
+            ]
+        });
+        let result = rt.block_on(toolbox.call("read_files", args)).unwrap();
+        let results = result["results"].as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        
+        let content = results[0]["content"].as_str().unwrap();
 
         assert!(!content.is_empty());
         assert!(content.contains("Linux kernel"));
