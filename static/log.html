@@ -124,14 +124,22 @@
 
         /* Unified Status Badge */
         .status-badge { 
-            display: inline-block; 
-            padding: 2px 8px; 
-            border-radius: 4px; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 6px; 
+            padding: 0; 
             font-size: 0.85em; 
             font-weight: bold; 
-            background-color: #f6f8fa; 
-            border: 1px solid #d1d5da; 
-            vertical-align: middle; 
+            background: transparent; 
+            border: none; 
+        }
+        .status-badge::before {
+            content: '';
+            display: block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
         }
         .status-Pending { color: #0366d6; }
         .status-Applying, .status-Analyzing, .status-Reviewing { color: #b08800; }

@@ -12,13 +12,22 @@
         tr:hover { background-color: #e0e0e0; }
         tr.selected { background-color: #d0d0d0; outline: 1px solid #aaa; }
         .status-badge { 
-            display: inline-block; 
-            padding: 2px 8px; 
-            border-radius: 4px; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 6px; 
+            padding: 0; 
             font-size: 0.85em; 
             font-weight: bold; 
-            background-color: #f6f8fa; 
-            border: 1px solid #d1d5da; 
+            background: transparent; 
+            border: none; 
+        }
+        .status-badge::before {
+            content: '';
+            display: block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
         }
         .status-Pending { color: #0366d6; }
         .status-Applying, .status-Analyzing, .status-Reviewing { color: #b08800; }
@@ -291,7 +300,7 @@
                         <td>${p.author || 'unknown'}</td>
                         <td>${parts}</td>
                         <td>${date}</td>
-                        <td class="status-${p.status} status-badge">${p.status || 'Pending'}</td>
+                        <td><span class="status-${p.status} status-badge">${p.status || 'Pending'}</span></td>
                     `;
                 } else {
                     // Messages mode
