@@ -496,6 +496,18 @@
             margin: 0 2px;
         }
 
+        .json-preview {
+            color: var(--text-muted);
+        }
+
+        .json-size {
+            color: var(--border);
+            /* Light gray like buttons usually are */
+            font-size: 0.85em;
+            float: right;
+            margin-left: 8px;
+        }
+
         /* Loading state */
         .loading {
             color: var(--text-muted);
@@ -1190,14 +1202,21 @@
 
         function formatJsonExpandable(obj, id) {
             const jsonStr = JSON.stringify(obj);
+            const size = formatSize(jsonStr.length);
+            const sizeHtml = `<span class="json-size">(${size})</span>`;
             const preview = jsonStr.length > 100 ? jsonStr.substring(0, 97) + '...' : jsonStr;
 
             if (jsonStr.length <= 100 && !jsonStr.includes('\\n') && !jsonStr.includes('\\t')) {
-                return escapeHtml(preview);
+                return `${sizeHtml}${escapeHtml(preview)}`;
             }
 
             const expandId = `json-resp-${id}`;
-            return `<span class="json-expandable" onclick="toggleJsonExpand('${expandId}')"><span class="json-preview">${escapeHtml(preview)}</span><pre id="${expandId}" class="json-formatted" style="display:none">${formatJsonPretty(obj)}</pre></span>`;
+            return `${sizeHtml}<span class="json-expandable" onclick="toggleJsonExpand('${expandId}')"><span class="json-preview">${escapeHtml(preview)}</span><pre id="${expandId}" class="json-formatted" style="display:none">${formatJsonPretty(obj)}</pre></span>`;
+        }
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + 'B';
+            return (bytes / 1024).toFixed(1) + 'KB';
         }
 
         function formatJsonPretty(obj) {
