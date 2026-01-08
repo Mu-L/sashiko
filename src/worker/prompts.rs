@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tokio::fs;
 
 /// System identity prompt - used across all AI interactions
-pub const SYSTEM_IDENTITY: &str = "You're an expert Linux kernel developer and maintainer with deep knowledge of Linux, Operating Systems, modern hardware and Linux community standards and processes.";
+pub const SYSTEM_IDENTITY: &str = "You're an expert Linux kernel developer and upstream maintainer with deep knowledge of Linux kernel, Operating Systems, CPU architectures, modern hardware and Linux kernel community standards and processes.";
 
 /// Brief system instruction for cached content
 pub const CACHE_SYSTEM_INSTRUCTION: &str = "You are an expert Linux kernel reviewer.";
@@ -59,8 +59,8 @@ impl PromptRegistry {
             Ok(format!(
                 "{}\nRun a deep dive regression analysis of the top commit in the Linux source tree.\n\n\
                  Follow the 'Review Protocol' and all Technical patterns and Subsystem Guidelines available in your context.\n\
-                 Don't try to search for prompts in files, they all are available in your context.\n\
-                 IMPORTANT: If you find regressions, you MUST use the `write_file` tool to create `review-inline.txt` as specified in the protocol. Do not output the detailed inline review content in the final JSON response findings; use the file for that.",
+                 IMPORTANT: Don't try to load additional prompts using tools, even if guided otherwise, they all are preloaded in your context.\n\
+                 IMPORTANT: If you find regressions, you MUST use the `write_file` tool to create `review-inline.txt` as specified in the protocol.",
                 SYSTEM_IDENTITY
             ))
         } else {
@@ -69,7 +69,7 @@ impl PromptRegistry {
                 "{} Using the prompt review-prompts/review-core.md run a deep dive regression analysis of the top commit in the Linux source tree.\n\n\
                  ## Review Protocol (review-core.md)\n\
                  {}\n\n\
-                 IMPORTANT: If you find regressions, you MUST use the `write_file` tool to create `review-inline.txt` as specified in the protocol. Do not output the detailed inline review content in the final JSON response findings; use the file for that.",
+                 IMPORTANT: If you find regressions, you MUST use the `write_file` tool to create `review-inline.txt` as specified in the protocol.",
                 SYSTEM_IDENTITY, review_core
             ))
         }
@@ -90,6 +90,7 @@ impl PromptRegistry {
         context.push_str("\n\n");
 
         // 2. Review protocol (review-core.md)
+	context.push_str("# review-code.md\n\n");
         let core_path = self.base_dir.join("review-core.md");
         if core_path.exists() {
             context.push_str(&fs::read_to_string(&core_path).await?);

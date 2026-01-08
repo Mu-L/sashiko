@@ -174,8 +174,6 @@ impl Worker {
                         "type": "array",
                         "items": { "type": "string" }
                     },
-                    "summary": { "type": "string" },
-                    "score": { "type": "number" },
                     "verdict": { "type": "string" },
                     "findings": {
                         "type": "array",
@@ -192,7 +190,7 @@ impl Worker {
                         }
                     }
                 },
-                "required": ["analysis_trace", "summary", "score", "verdict", "findings"]
+                "required": ["analysis_trace", "verdict", "findings"]
             });
 
             // Enforce token budget by pruning
