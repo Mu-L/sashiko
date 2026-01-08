@@ -6,13 +6,49 @@ You're an expert Software Engineer with deep knowledge of Rust, Distributed Syst
 - Sign all commits using default credentials. Every commit **MUST** include a `Signed-off-by` line (e.g., using `git commit -s`). **NO EXCEPTIONS.**
 - **Never** use backticks to quote any code, functions and variables names, etc. in the commit message.
 - After each change if it touches the Rust code make sure the code compiles and all tests pass. Never start a new task with non-clean git status. Clear the context between tasks.
-- For all new Rust code add tests, unless they are trivial or redundant.
-- Make sure the code can be compiled with Rust 1.86, don't use unstable new features.
-- Run `cargo fmt` and `cargo clippy` BEFORE committing a change, if Rust code was touched.
 - Make sure to not commit any logs or temporary files. NEVER commit before running `cargo fmt` and `cargo clippy`.
 - Once the task is done, no local changes should remain. Amend them to the previous commit, if it makes sense, make a standalone commit or get rid iof them.
 - Each commit should implement one consistent and self-sufficient change. Never create commits like "do X and Y", create 2 commits instead.
-- Make sure all new code is safe and performant. Always prioritize making code clear and easy to support.
 - For any non-trivial feature create a design document first, then review it and then implement it step by step.
 - If not sure, ask the user, don't proceed without confidence. Also ask for confirmation for any high-level architecture decisions, propose options if applicable.
 - Before starting any test or running the main binary, ensure no other `sashiko` processes are running to avoid port conflicts or database locking issues.
+
+# Rust Coding Standards
+
+## 1. Idiomatic Rust
+
+- **Version:** Make sure the code can be compiled with Rust 1.86, don't use unstable new features.
+- **Safety First:** Prioritize safe Rust. Only use `unsafe` blocks when absolutely necessary and document the safety invariant clearly.
+- **Error Handling:** Use `Result<T, E>` for recoverable errors. Avoid `.unwrap()` and `.expect()` in production code unless you can statically prove it will never panic (and document why). Prefer `?` operator for error propagation.
+- **Ownership & Borrowing:** Leverage the borrow checker. Prefer borrowing (`&T`, `&mut T`) over cloning (`.clone()`) unless necessary for ownership transfer.
+- **Iterators:** Use iterator chains (`map`, `filter`, `fold`, etc.) over explicit `for` loops where it increases clarity and conciseness.
+- **Clippy:** Ensure code passes `cargo clippy`. Respect its suggestions.
+- **Formatting:** Code must be formatted with `rustfmt` (`cargo fmt`).
+
+## 2. Complexity & Structure
+
+- **Cyclomatic Complexity:** Keep cyclomatic complexity low (target < 15). If a function has too many branches or loops, refactor it.
+- **Function Length:** Avoid excessively long functions. A function should ideally fit on a single screen (soft limit of ~50 lines) or focus on a single responsibility. Break down large functions into smaller helper functions.
+- **Modules:** Use the module system effectively to organize code logically. Keep public APIs clean and minimal.
+
+## 3. Comments
+
+- **Statements, Not Questions:** Comments should explain *why* something is done or clarify complex logic. They must be declarative statements.
+  - **Bad:** `// Should we check for null here?`
+  - **Good:** `// Check for null to prevent panic during initialization.`
+- **Doc Comments:** Use `///` for documentation comments on public items. Include examples where helpful.
+
+## 4. Code Reuse (DRY)
+
+- **Aggressive Reuse:** Do not duplicate code. If logic appears in multiple places, extract it into a shared function, struct, or trait.
+- **Generic Programming:** Use generics and traits to write flexible, reusable code rather than duplicating logic for different types.
+- **Libraries:** leverage standard library and existing crate dependencies before writing custom implementations.
+
+## 5. Testing
+
+- **Unit Tests:** Write unit tests for new logic, ideally in the same file within a `tests` module.
+- **Integration Tests:** Use `tests/` directory for integration tests that test the public API.
+
+## 6. Asynchronous Code
+
+- **Async/Await:** Use idiomatic `async`/`await` patterns. Be mindful of blocking operations in async contexts; use `tokio::task::spawn_blocking` if necessary.
