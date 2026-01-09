@@ -1236,18 +1236,16 @@
             const providerModel = `${r.provider || '?'}/${r.model || '?'}`;
             const uniqueId = Math.random().toString(36).substr(2, 9);
 
-            let regressionCount = 0, hasRegressions = false, statusText = r.result || 'Finished', traceHtml = '';
-
+            let displayResult = '';
+            let traceHtml = '';
+            
+            // 1. Try to parse output for structured findings
+            let parsedFindings = false;
             try {
                 if (r.output) {
                     const outputJson = JSON.parse(r.output);
-                    if (outputJson.findings?.length) {
-                        regressionCount = outputJson.findings.length;
-                        hasRegressions = true;
-                    } else if (outputJson.regressions?.length) {
-                        regressionCount = outputJson.regressions.length;
-                        hasRegressions = true;
-                    }
+                    
+                    // Trace
                     if (outputJson.analysis_trace?.length) {
                         const traceId = `trace-${uniqueId}`;
                         const entries = outputJson.analysis_trace.map((t, i) => {
@@ -1263,39 +1261,43 @@
                             </div>
                         `;
                     }
+
+                    // Findings
+                    if (outputJson.findings && Array.isArray(outputJson.findings)) {
+                        let counts = { low: 0, medium: 0, high: 0, critical: 0 };
+                        outputJson.findings.forEach(f => {
+                            const s = (f.severity || '').toLowerCase();
+                            if (s === 'critical') counts.critical++;
+                            else if (s === 'high') counts.high++;
+                            else if (s === 'medium') counts.medium++;
+                            else counts.low++;
+                        });
+                        
+                        const total = counts.low + counts.medium + counts.high + counts.critical;
+                        if (total === 0) {
+                            displayResult = '<span style="color:#2e7d32;font-weight:bold;">No regressions</span>';
+                        } else {
+                            displayResult = renderFindingsBadges(counts);
+                        }
+                        parsedFindings = true;
+                    }
                 }
             } catch (e) { }
 
-            if (statusText === "Review completed successfully.") {
-                if (hasRegressions && r.output) {
-                    try {
-                        const out = JSON.parse(r.output);
-                        if (out.findings && Array.isArray(out.findings)) {
-                            let counts = { low: 0, medium: 0, high: 0, critical: 0 };
-                            out.findings.forEach(f => {
-                                const s = (f.severity || '').toLowerCase();
-                                if (s === 'critical') counts.critical++;
-                                else if (s === 'high') counts.high++;
-                                else if (s === 'medium') counts.medium++;
-                                else counts.low++;
-                            });
-                            statusText = renderFindingsBadges(counts);
-                            if (!statusText.trim()) statusText = 'No regressions';
-                        } else {
-                             statusText = `${regressionCount} potential regressions`;
-                        }
-                    } catch(e) {
-                        statusText = `${regressionCount} potential regressions`;
-                    }
+            // 2. If no structured findings, fallback to r.result
+            if (!parsedFindings) {
+                const rawResult = r.result || 'Finished';
+                if (rawResult === "Review completed successfully.") {
+                     displayResult = '<span style="color:#2e7d32;font-weight:bold;">No regressions</span>';
                 } else {
-                    statusText = 'No regressions';
+                    // Check for "garbage" (long JSON or similar)
+                    if (rawResult.trim().startsWith('{') || rawResult.length > 60) {
+                         displayResult = `<span style="color:#666; font-style:italic;" title="${escapeHtml(rawResult)}">See log for details</span>`;
+                    } else {
+                         displayResult = `<span style="font-weight:bold;">${escapeHtml(rawResult)}</span>`;
+                    }
                 }
             }
-
-            let resultStyle = ''; 
-            if (statusText.includes('No regressions')) resultStyle = 'color:#2e7d32;font-weight:bold;';
-            else if (statusText === r.result && r.status !== 'Reviewed') resultStyle = ''; // Default style for non-success
-            else resultStyle = 'font-weight:bold;'; // Colored spans handle color
 
             let baselineStr = '-';
             if (r.baseline) {
@@ -1307,8 +1309,10 @@
 
             let inlineHtml = '';
             if (r.inline_review) {
-                const isOpen = hasRegressions ? 'open' : '';
-                const icon = hasRegressions ? '▼' : '▶';
+                // If we found issues (parsedFindings is true and result isn't "No regressions"), expand by default
+                const hasIssues = parsedFindings && !displayResult.includes('No regressions');
+                const isOpen = hasIssues ? 'open' : '';
+                const icon = hasIssues ? '▼' : '▶';
                 inlineHtml = `
                     <div style="margin-top:8px;">
                         <button class="toggle-btn" onclick="toggleCollapsible('inline-${uniqueId}', this)">${icon} Inline Review</button>
@@ -1330,7 +1334,7 @@
                         <div class="review-meta-label">Baseline:</div><div>${baselineStr}</div>
                         <div class="review-meta-label">Model:</div><div>${providerModel}</div>
                         <div class="review-meta-sep"></div>
-                        <div class="review-meta-label">Result:</div><div style="${resultStyle}">${escapeHtml(statusText)}</div>
+                        <div class="review-meta-label">Result:</div><div>${displayResult}</div>
                     </div>
                     ${inlineHtml}
                     ${traceHtml}
