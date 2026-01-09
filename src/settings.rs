@@ -75,9 +75,15 @@ fn default_max_retries() -> u32 {
     3
 }
 
+fn default_log_level() -> String {
+    "warn".to_string()
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[allow(unused)]
 pub struct Settings {
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
     pub database: DatabaseSettings,
     pub nntp: NntpSettings,
     pub ai: AiSettings,

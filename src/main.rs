@@ -28,6 +28,10 @@ struct Cli {
     #[arg(long)]
     port: Option<u16>,
 
+    /// Enable debug logging (overrides settings)
+    #[arg(long)]
+    debug: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -44,15 +48,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
     let cli = Cli::parse();
 
-    // Initialize tracing with EnvFilter, defaulting to "info" if RUST_LOG is not set
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    // Load settings early to determine log level, but don't fail yet
+    let settings_result = Settings::new();
+
+    // Determine log level
+    // 1. CLI --debug takes precedence (implies "debug")
+    // 2. Settings log_level
+    // 3. Fallback to "warn" (if settings failed)
+    let log_level = if cli.debug {
+        "debug"
+    } else {
+        match &settings_result {
+            Ok(s) => &s.log_level,
+            Err(_) => "warn",
+        }
+    };
+
+    // Initialize tracing with EnvFilter
+    // RUST_LOG env var still overrides everything if present
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
 
     fmt().with_env_filter(env_filter).init();
 
-    info!("Starting Sashiko...");
+    if cli.debug {
+        info!("Debug logging enabled");
+    }
 
-    // Load settings
-    let mut settings = match Settings::new() {
+    // Now handle settings result properly
+    let mut settings = match settings_result {
         Ok(s) => {
             info!("Settings loaded successfully");
             s
