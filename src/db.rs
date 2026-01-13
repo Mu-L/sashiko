@@ -95,6 +95,7 @@ pub enum Severity {
 }
 
 impl Severity {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         let s = s.trim();
         if s.eq_ignore_ascii_case("critical") {
@@ -389,6 +390,31 @@ impl Database {
         } else {
             Err(anyhow::anyhow!("Failed to get review ID"))
         }
+    }
+
+    pub async fn has_successful_review(
+        &self,
+        patchset_id: i64,
+        patch_id: i64,
+        baseline_id: Option<i64>,
+    ) -> Result<bool> {
+        let mut rows = if let Some(bid) = baseline_id {
+            self.conn
+                .query(
+                    "SELECT 1 FROM reviews WHERE patchset_id = ? AND patch_id = ? AND baseline_id = ? AND status = 'Reviewed'",
+                    libsql::params![patchset_id, patch_id, bid],
+                )
+                .await?
+        } else {
+            self.conn
+                .query(
+                    "SELECT 1 FROM reviews WHERE patchset_id = ? AND patch_id = ? AND baseline_id IS NULL AND status = 'Reviewed'",
+                    libsql::params![patchset_id, patch_id],
+                )
+                .await?
+        };
+
+        Ok(rows.next().await.ok().flatten().is_some())
     }
 
     pub async fn update_review_status(
@@ -1259,6 +1285,18 @@ impl Database {
         branch: Option<&str>,
         commit: Option<&str>,
     ) -> Result<i64> {
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT id FROM baselines WHERE repo_url IS ? AND branch IS ? AND last_known_commit IS ?",
+                libsql::params![repo_url, branch, commit],
+            )
+            .await?;
+
+        if let Ok(Some(row)) = rows.next().await {
+            return Ok(row.get(0)?);
+        }
+
         self.conn
             .execute(
                 "INSERT INTO baselines (repo_url, branch, last_known_commit) VALUES (?, ?, ?)",

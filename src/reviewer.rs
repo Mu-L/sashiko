@@ -428,6 +428,18 @@ impl Reviewer {
             None
         };
 
+        if ctx
+            .db
+            .has_successful_review(patchset_id, patch_id, baseline_id)
+            .await?
+        {
+            info!(
+                "Patch {}/{} (ID: {}) already reviewed with baseline {:?}. Skipping.",
+                patchset_id, index, patch_id, baseline_id
+            );
+            return Ok(PatchResult::Success);
+        }
+
         let mut retries = 0;
         let max_retries = ctx.settings.review.max_retries;
 
