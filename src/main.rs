@@ -16,9 +16,9 @@ struct Cli {
     #[arg(long)]
     download: Option<usize>,
 
-    /// Disable NNTP ingestor
+    /// Enable NNTP ingestor (disabled by default)
     #[arg(long)]
-    no_nntp: bool,
+    nntp: bool,
 
     /// Disable AI interactions (ingestion only)
     #[arg(long)]
@@ -241,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db.clone(),
         raw_tx,
         cli.download,
-        cli.no_nntp,
+        cli.nntp,
         cli.message,
         cli.patchset,
     );
@@ -513,15 +513,15 @@ mod tests {
 
     #[test]
     fn test_cli_parsing() {
-        let args = vec!["sashiko", "--download", "100", "--no-nntp"];
+        let args = vec!["sashiko", "--download", "100", "--nntp"];
         let cli = Cli::parse_from(args);
         assert_eq!(cli.download, Some(100));
-        assert!(cli.no_nntp);
+        assert!(cli.nntp);
 
         let args = vec!["sashiko"];
         let cli = Cli::parse_from(args);
         assert_eq!(cli.download, None);
-        assert!(!cli.no_nntp);
+        assert!(!cli.nntp);
     }
 
     #[test]

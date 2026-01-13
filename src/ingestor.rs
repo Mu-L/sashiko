@@ -17,7 +17,7 @@ pub struct Ingestor {
     db: Arc<Database>,
     sender: Sender<Event>,
     download: Option<usize>,
-    no_nntp: bool,
+    nntp_enabled: bool,
     message_id: Option<String>,
     patchset_id: Option<String>,
 }
@@ -28,7 +28,7 @@ impl Ingestor {
         db: Arc<Database>,
         sender: Sender<Event>,
         download: Option<usize>,
-        no_nntp: bool,
+        nntp_enabled: bool,
         message_id: Option<String>,
         patchset_id: Option<String>,
     ) -> Self {
@@ -37,7 +37,7 @@ impl Ingestor {
             db,
             sender,
             download,
-            no_nntp,
+            nntp_enabled,
             message_id,
             patchset_id,
         }
@@ -70,10 +70,10 @@ impl Ingestor {
             }
         }
 
-        if !self.no_nntp {
+        if self.nntp_enabled {
             self.run_nntp().await?;
         } else {
-            info!("NNTP ingestor disabled via command line.");
+            info!("NNTP ingestor disabled (default). Use --nntp to enable.");
         }
 
         Ok(())
