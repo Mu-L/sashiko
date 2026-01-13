@@ -14,7 +14,7 @@ use crate::worker::prompts::PromptRegistry;
 use crate::worker::tools::ToolBox;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 pub struct Worker {
     client: Box<dyn GenAiClient>,
@@ -262,7 +262,7 @@ impl Worker {
                         ..
                     } => {
                         has_calls = true;
-                        info!("Tool Call: {} args: {}", call.name, call.args);
+                        debug!("Tool Call: {} args: {}", call.name, call.args);
 
                         if let Some((last_name, last_args)) = &last_tool_call {
                             if *last_name == call.name && *last_args == call.args {
@@ -296,7 +296,7 @@ impl Worker {
                         let result = match self.tools.call(&call.name, call.args.clone()).await {
                             Ok(val) => val,
                             Err(e) => {
-                                warn!("Tool execution failed: {}", e);
+                                debug!("Tool execution failed: {}", e);
                                 json!({ "error": e.to_string() })
                             }
                         };
