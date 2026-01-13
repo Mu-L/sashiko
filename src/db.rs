@@ -665,7 +665,18 @@ impl Database {
     }
 
     pub async fn get_review_stats(&self) -> Result<serde_json::Value> {
-        let sql = "SELECT provider, model_name, status, count(*) FROM reviews GROUP BY provider, model_name, status";
+        let sql = "SELECT 
+            r.provider, 
+            r.model_name, 
+            r.status, 
+            count(*),
+            sum(COALESCE(ai.tokens_in, 0)),
+            sum(COALESCE(ai.tokens_out, 0)),
+            sum(COALESCE(ai.tokens_cached, 0))
+        FROM reviews r
+        LEFT JOIN ai_interactions ai ON r.interaction_id = ai.id
+        GROUP BY r.provider, r.model_name, r.status";
+        
         let mut rows = self.conn.query(sql, ()).await?;
         let mut stats = Vec::new();
         while let Ok(Some(row)) = rows.next().await {
@@ -673,11 +684,18 @@ impl Database {
             let model: Option<String> = row.get(1).ok();
             let status: Option<String> = row.get(2).ok();
             let count: i64 = row.get(3)?;
+            let tokens_in: i64 = row.get(4).unwrap_or(0);
+            let tokens_out: i64 = row.get(5).unwrap_or(0);
+            let tokens_cached: i64 = row.get(6).unwrap_or(0);
+
             stats.push(json!({
                 "provider": provider.unwrap_or_default(),
                 "model": model.unwrap_or_default(),
                 "status": status.unwrap_or_default(),
-                "count": count
+                "count": count,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "tokens_cached": tokens_cached
             }));
         }
         Ok(json!(stats))

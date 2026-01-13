@@ -1795,6 +1795,20 @@
                 html += renderStatCard('Total Reviews', totalReviews);
                 html += renderStatCard('Success Rate', totalReviews ? Math.round(successful / totalReviews * 100) + '%' : '-');
                 html += renderStatCard('Failures', failed);
+
+                // Calculate total tokens
+                const totalTokensIn = reviews.reduce((acc, r) => acc + (r.tokens_in || 0), 0);
+                const totalTokensOut = reviews.reduce((acc, r) => acc + (r.tokens_out || 0), 0);
+                const totalTokensCached = reviews.reduce((acc, r) => acc + (r.tokens_cached || 0), 0);
+                
+                // Average per patch (review)
+                const avgTokensIn = totalReviews ? Math.round(totalTokensIn / totalReviews) : 0;
+                const avgTokensOut = totalReviews ? Math.round(totalTokensOut / totalReviews) : 0;
+                const avgTokensCached = totalReviews ? Math.round(totalTokensCached / totalReviews) : 0;
+
+                html += renderStatCard('Input tokens/patch', avgTokensIn);
+                html += renderStatCard('Cached tokens/patch', avgTokensCached);
+                html += renderStatCard('Out tokens/patch', avgTokensOut);
                 html += '</div>';
 
                 html += '<h3>Reviews Breakdown</h3><div class="chart-section"><div id="chart-reviews" style="width:100%; height:400px;"></div></div>';
