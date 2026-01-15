@@ -297,7 +297,34 @@ impl Ingestor {
             }
         };
 
-        info!("Generating patches for range {} from {:?}", range, repo_path);
+        // Calculate commit count for the range to set total_parts correctly
+        let count_output = Command::new("git")
+            .current_dir(&repo_path)
+            .args(["-c", "safe.bareRepository=all"])
+            .arg("rev-list")
+            .arg("--count")
+            .arg(range)
+            .output()
+            .await?;
+
+        let total_count = if count_output.status.success() {
+            String::from_utf8_lossy(&count_output.stdout)
+                .trim()
+                .parse::<usize>()
+                .unwrap_or(0)
+        } else {
+            warn!(
+                "Failed to count commits in range {}: {}",
+                range,
+                String::from_utf8_lossy(&count_output.stderr)
+            );
+            0
+        };
+
+        info!(
+            "Generating patches for range {} from {:?} (count: {})",
+            range, repo_path, total_count
+        );
 
         let mut cmd = Command::new("git");
         cmd.current_dir(&repo_path)
@@ -322,7 +349,7 @@ impl Ingestor {
             reader,
             baseline,
             &format!("git range {}", range),
-            &format!("git-import:{}", range),
+            &format!("git-import:{}:{}", total_count, range),
         )
         .await?;
 

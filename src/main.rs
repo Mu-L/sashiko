@@ -344,45 +344,54 @@ async fn process_parsed_article(worker_db: &Database, article: ParsedArticle) ->
     };
 
     // 1. Thread Resolution
-    let (thread_id, is_git_import) = if let Some(range) = group.strip_prefix("git-import:") {
-        let safe_range = range.replace(['/', ':', ' ', '.'], "_");
-        let root_msg_id = format!("git-import-{}@sashiko.local", safe_range);
-        match worker_db
-            .ensure_thread_for_message(&root_msg_id, metadata.date)
-            .await
-        {
-            Ok(tid) => (tid, true),
-            Err(e) => {
-                error!("Failed to ensure thread for git import {}: {}", range, e);
-                return ProcessStatus::Error;
+    let (thread_id, is_git_import, git_import_total) =
+        if let Some(rest) = group.strip_prefix("git-import:") {
+            // format is "count:range"
+            let parts: Vec<&str> = rest.splitn(2, ':').collect();
+            let (total_count, range) = if parts.len() == 2 {
+                (parts[0].parse::<u32>().unwrap_or(0), parts[1])
+            } else {
+                (0, rest)
+            };
+
+            let safe_range = range.replace(['/', ':', ' ', '.'], "_");
+            let root_msg_id = format!("git-import-{}@sashiko.local", safe_range);
+            match worker_db
+                .ensure_thread_for_message(&root_msg_id, metadata.date)
+                .await
+            {
+                Ok(tid) => (tid, true, total_count),
+                Err(e) => {
+                    error!("Failed to ensure thread for git import {}: {}", range, e);
+                    return ProcessStatus::Error;
+                }
             }
-        }
-    } else if let Some(ref reply_to) = metadata.in_reply_to {
-        match worker_db
-            .ensure_thread_for_message(reply_to, metadata.date)
-            .await
-        {
-            Ok(tid) => (tid, false),
-            Err(e) => {
-                error!("Failed to ensure thread for parent {}: {}", reply_to, e);
-                return ProcessStatus::Error;
+        } else if let Some(ref reply_to) = metadata.in_reply_to {
+            match worker_db
+                .ensure_thread_for_message(reply_to, metadata.date)
+                .await
+            {
+                Ok(tid) => (tid, false, 0),
+                Err(e) => {
+                    error!("Failed to ensure thread for parent {}: {}", reply_to, e);
+                    return ProcessStatus::Error;
+                }
             }
-        }
-    } else {
-        match worker_db
-            .ensure_thread_for_message(&metadata.message_id, metadata.date)
-            .await
-        {
-            Ok(tid) => (tid, false),
-            Err(e) => {
-                error!(
-                    "Failed to ensure thread for self {}: {}",
-                    metadata.message_id, e
-                );
-                return ProcessStatus::Error;
+        } else {
+            match worker_db
+                .ensure_thread_for_message(&metadata.message_id, metadata.date)
+                .await
+            {
+                Ok(tid) => (tid, false, 0),
+                Err(e) => {
+                    error!(
+                        "Failed to ensure thread for self {}: {}",
+                        metadata.message_id, e
+                    );
+                    return ProcessStatus::Error;
+                }
             }
-        }
-    };
+        };
 
     let is_git_hash = article_id.len() == 40 && article_id.chars().all(|c| c.is_ascii_hexdigit());
     let (body_to_store, git_hash_opt) = if is_git_hash {
@@ -463,13 +472,18 @@ async fn process_parsed_article(worker_db: &Database, article: ParsedArticle) ->
 
     if metadata.is_patch_or_cover {
         let (subject, author, total_parts, strict_author) = if is_git_import {
+            let range = group
+                .strip_prefix("git-import:")
+                .and_then(|s| s.split_once(':').map(|(_, r)| r))
+                .unwrap_or("unknown");
             (
-                format!(
-                    "Git Import: {}",
-                    group.strip_prefix("git-import:").unwrap_or("unknown")
-                ),
+                format!("Git Import: {}", range),
                 "Sashiko Git Import".to_string(),
-                999999,
+                if git_import_total > 0 {
+                    git_import_total
+                } else {
+                    metadata.total
+                },
                 false,
             )
         } else {
