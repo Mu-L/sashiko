@@ -1203,6 +1203,16 @@
                 ? data.subsystems.map(s => `<span class="tag">${escapeHtml(s)}</span>`).join('')
                 : '-';
 
+            let failureHtml = '';
+            if (data.failed_reason) {
+                failureHtml = `
+                    <div class="section" style="background:#fff0f0; border:1px solid #ffcdd2; padding:12px; border-radius:4px; margin-bottom:16px;">
+                        <h3 style="margin-top:0; color:#b71c1c;">Ingestion Failed</h3>
+                        <div style="color:#d32f2f;">${escapeHtml(data.failed_reason)}</div>
+                    </div>
+                `;
+            }
+
             document.getElementById('app').innerHTML = `
                 <div class="nav"><a href="#/" onclick="event.preventDefault(); goBack();">← Back</a></div>
                 <h1>
@@ -1210,6 +1220,8 @@
                     <span class="status-badge status-${data.status}">${data.status || 'Pending'}</span>
                 </h1>
                 
+                ${failureHtml}
+
                 <div class="section">
                     <div class="kv"><div class="label">Author:</div><div>${escapeHtml(data.author) || 'unknown'}</div></div>
                     <div class="kv"><div class="label">Date:</div><div>${date}</div></div>
