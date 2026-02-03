@@ -1496,6 +1496,23 @@ impl Database {
             // Parse version from existing subject
             let existing_version = crate::patch::parse_subject_version(&existing_subject);
 
+            // Clean subjects for comparison
+            let clean_new = crate::patch::clean_subject(subject);
+            let clean_old = crate::patch::clean_subject(&existing_subject);
+
+            // Check for index collision
+            // If the patchset already contains a patch with this index (and different message_id), it's a collision.
+            // This prevents merging [PATCH 1/2] Series A and [PATCH 1/2] Series B.
+            let index_collision = if part_index == 0 {
+                existing_cover_id.is_some() && existing_cover_id.as_deref() != Some(message_id)
+            } else {
+                 let mut p_rows = self.conn.query(
+                     "SELECT 1 FROM patches WHERE patchset_id = ? AND part_index = ? AND message_id != ?",
+                     libsql::params![id, part_index, message_id]
+                 ).await?;
+                 p_rows.next().await.ok().flatten().is_some()
+            };
+
             // Matching logic:
             // 1. Author matches OR it's a multi-part series with matching total_parts (trusting thread context)
             //    BUT strict_author enforces strict author matching (for Email/NNTP).
@@ -1515,11 +1532,23 @@ impl Database {
                     true
                 } else {
                     // Allow merging 0/1 (cover) and 1/1 (patch) even if subjects differ
-                    (part_index == 0 && existing_subject_index == 1)
-                        || (part_index == 1 && existing_subject_index == 0)
+                    if (part_index == 0 && existing_subject_index == 1)
+                        || (part_index == 1 && existing_subject_index == 0) {
+                        true
+                    } else {
+                        clean_new == clean_old
+                    }
                 }
             } else {
-                true // For series, we rely on 1/N, 2/N pattern and author/time.
+                // For series:
+                // If we are replacing/matching the SAME index as the one that defined the patchset subject,
+                // we require the subjects to match.
+                // e.g. [PATCH 1/2] Series A vs [PATCH 1/2] Series B -> Mismatch.
+                if part_index == existing_subject_index {
+                    clean_new == clean_old
+                } else {
+                    true // For other parts (1/N vs 2/N), subjects differ naturally.
+                }
             };
 
             // Relaxed author check logic
@@ -1537,6 +1566,7 @@ impl Database {
                 && versions_compatible
                 && total_parts == existing_total
                 && subject_match
+                && !index_collision
             {
                 matches.push((id, existing_subject_index));
             }
@@ -2519,7 +2549,7 @@ mod tests {
                 "to",
                 "cc",
                 Some(1),
-                0,
+                1,
                 None,
                 false,
             )

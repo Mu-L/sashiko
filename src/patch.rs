@@ -190,9 +190,49 @@ pub fn parse_subject_version(subject: &str) -> Option<u32> {
     None
 }
 
+pub fn clean_subject(subject: &str) -> String {
+    static RE_BRACKETS: OnceLock<Regex> = OnceLock::new();
+    let re = RE_BRACKETS.get_or_init(|| Regex::new(r"\[.*?\]").unwrap());
+    
+    // 1. Remove [...] blocks
+    let no_brackets = re.replace_all(subject, "");
+    
+    // 2. Remove Re:, Fwd: prefixes (case insensitive)
+    let mut cleaned = no_brackets.trim().to_string();
+    let prefixes = ["re:", "fwd:", "aw:", "forwarded:"];
+    
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let lower = cleaned.to_lowercase();
+        for prefix in &prefixes {
+            if lower.starts_with(prefix) {
+                if let Some(rest) = cleaned.get(prefix.len()..) {
+                    cleaned = rest.trim().to_string();
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+    
+    cleaned
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_clean_subject() {
+        assert_eq!(clean_subject("[PATCH] Fix bug"), "Fix bug");
+        assert_eq!(clean_subject("[PATCH v2] Fix bug"), "Fix bug");
+        assert_eq!(clean_subject("[PATCH 1/2] Fix bug"), "Fix bug");
+        assert_eq!(clean_subject("Re: [PATCH] Fix bug"), "Fix bug");
+        assert_eq!(clean_subject("[PATCH] Re: Fix bug"), "Fix bug"); // "[PATCH] " removed, then "Re: Fix bug" -> "Fix bug"
+        assert_eq!(clean_subject("Subject only"), "Subject only");
+        assert_eq!(clean_subject("[RFC] [PATCH v3] Complex subject"), "Complex subject");
+    }
 
     #[test]
     fn test_author_parsing() {
