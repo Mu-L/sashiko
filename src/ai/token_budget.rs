@@ -1,9 +1,12 @@
-use tiktoken_rs::cl100k_base;
+use std::sync::OnceLock;
+use tiktoken_rs::{cl100k_base, CoreBPE};
 
 pub struct TokenBudget {
     pub max_tokens: usize,
     pub current: usize,
 }
+
+static TOKENIZER: OnceLock<CoreBPE> = OnceLock::new();
 
 impl TokenBudget {
     pub fn new(max_tokens: usize) -> Self {
@@ -34,13 +37,8 @@ impl TokenBudget {
         if text.is_empty() {
             return 0;
         }
-        match cl100k_base() {
-            Ok(bpe) => bpe.encode_with_special_tokens(text).len(),
-            Err(_) => {
-                // Fallback heuristic if tokenizer fails (unlikely)
-                text.len().div_ceil(4)
-            }
-        }
+        let bpe = TOKENIZER.get_or_init(|| cl100k_base().expect("Failed to load cl100k_base tokenizer"));
+        bpe.encode_with_special_tokens(text).len()
     }
 }
 
@@ -70,5 +68,24 @@ mod tests {
         assert!(t1 >= 1);
         let t2 = TokenBudget::estimate_tokens("hello world");
         assert!(t2 > t1);
+    }
+
+    #[test]
+    fn test_estimate_tokens_performance() {
+        let text = "Hello world this is a test string to estimate tokens for.";
+        let start = std::time::Instant::now();
+        // 1,000 iterations is enough to detect regression.
+        // Optimized: ~0.15s.
+        // Unoptimized: ~30s.
+        let iterations = 1_000;
+
+        for _ in 0..iterations {
+            let _ = TokenBudget::estimate_tokens(text);
+        }
+
+        let duration = start.elapsed();
+        println!("Time for {} iterations: {:?}", iterations, duration);
+
+        assert!(duration.as_secs() < 1, "Token estimation is too slow! {:?} for {} iterations", duration, iterations);
     }
 }
