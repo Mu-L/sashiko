@@ -1384,6 +1384,7 @@
                         </div>
                         <div class="review-meta-label">Baseline:</div><div>${baselineStr}</div>
                         <div class="review-meta-label">Model:</div><div>${providerModel}</div>
+                        <div class="review-meta-label">Prompts:</div><div>${r.prompts_hash ? r.prompts_hash.substring(0, 8) : '-'}</div>
                         ${showDetails ? `
                         <div class="review-meta-sep"></div>
                         <div class="review-meta-label">Result:</div><div>${displayResult}</div>
@@ -1559,7 +1560,7 @@
                 <h1>
                     <span>Interaction Log</span>
                     <span style="font-size:0.7em; font-weight:normal; color:#888;">
-                        ${data.model || '?'} · ${totalTokens} tokens · 
+                        ${data.model || '?'} · ${totalTokens} tokens · ${data.prompts_hash ? 'Prompts: ' + data.prompts_hash.substring(0, 8) + ' · ' : ''}
                         <span class="status-badge status-${data.status}">${data.status}</span>
                     </span>
                 </h1>
