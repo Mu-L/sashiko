@@ -69,7 +69,7 @@ impl PromptRegistry {
     pub async fn get_user_task_prompt(&self, use_cache: bool) -> Result<String> {
         if use_cache {
             Ok(format!(
-                "{}\nAnalyze the provided patch.",
+                "{}\nAnalyze the provided patch:",
                 SYSTEM_IDENTITY
             ))
         } else {
@@ -77,7 +77,7 @@ impl PromptRegistry {
             Ok(format!(
                 "{} Using the prompt kernel/review-core.md run a deep dive regression analysis of the top commit in the Linux source tree.\n\n\
                  ## Review Protocol (review-core.md)\n\
-                 {}\n\n",
+                 {}\n\nAnalyze the provided patch:",
                 SYSTEM_IDENTITY, review_core
             ))
         }
