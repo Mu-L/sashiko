@@ -307,9 +307,17 @@ mod tests {
         // 2. write_file (Duplicate -> Blocked by worker, returns Error to LLM)
         // 3. LLM sees error and finishes.
         let client = Box::new(StatefulMockClient::new(vec![
-            create_tool_call_response("write_file", json!({ "path": "review-inline.txt", "content": "test" })),
-            create_tool_call_response("write_file", json!({ "path": "review-inline.txt", "content": "test" })),
-            create_text_response("```json\n{\"summary\": \"Done\", \"score\": 0, \"verdict\": \"Pass\", \"findings\": [], \"analysis_trace\": []}\n```"),
+            create_tool_call_response(
+                "write_file",
+                json!({ "path": "review-inline.txt", "content": "test" }),
+            ),
+            create_tool_call_response(
+                "write_file",
+                json!({ "path": "review-inline.txt", "content": "test" }),
+            ),
+            create_text_response(
+                "```json\n{\"summary\": \"Done\", \"score\": 0, \"verdict\": \"Pass\", \"findings\": [], \"analysis_trace\": []}\n```",
+            ),
         ]));
 
         let tools = ToolBox::new(linux_path, None);
@@ -335,13 +343,15 @@ mod tests {
         // 2: Tool Res 1 (Success)
         // 3: Model Call 2 (write duplicate)
         // 4: Tool Res 2 (Error)
-        
+
         assert!(result.history.len() >= 5);
         let tool_res_2 = &result.history[4];
         if let Part::FunctionResponse { function_response } = &tool_res_2.parts[0] {
-             assert_eq!(function_response.name, "write_file");
-             let err = function_response.response["error"].as_str().expect("Response should have error");
-             assert!(err.contains("Duplicate Action"));
+            assert_eq!(function_response.name, "write_file");
+            let err = function_response.response["error"]
+                .as_str()
+                .expect("Response should have error");
+            assert!(err.contains("Duplicate Action"));
         } else {
             panic!("Expected FunctionResponse at index 4");
         }

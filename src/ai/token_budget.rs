@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::sync::OnceLock;
-use tiktoken_rs::{cl100k_base, CoreBPE};
+use tiktoken_rs::{CoreBPE, cl100k_base};
 
 pub struct TokenBudget {
     pub max_tokens: usize,
@@ -51,7 +51,8 @@ impl TokenBudget {
         if text.is_empty() {
             return 0;
         }
-        let bpe = TOKENIZER.get_or_init(|| cl100k_base().expect("Failed to load cl100k_base tokenizer"));
+        let bpe =
+            TOKENIZER.get_or_init(|| cl100k_base().expect("Failed to load cl100k_base tokenizer"));
         bpe.encode_with_special_tokens(text).len()
     }
 }
@@ -100,6 +101,11 @@ mod tests {
         let duration = start.elapsed();
         println!("Time for {} iterations: {:?}", iterations, duration);
 
-        assert!(duration.as_secs() < 1, "Token estimation is too slow! {:?} for {} iterations", duration, iterations);
+        assert!(
+            duration.as_secs() < 1,
+            "Token estimation is too slow! {:?} for {} iterations",
+            duration,
+            iterations
+        );
     }
 }

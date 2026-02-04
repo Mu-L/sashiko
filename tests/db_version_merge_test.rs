@@ -20,9 +20,36 @@ async fn test_merge_different_versions_should_fail() {
     let t1 = db.create_thread("root1", "Subject", 1000).await.unwrap();
 
     // Create messages
-    db.create_message("msg1", t1, None, "Author", "[PATCH] Fix something", 1000, "body", "", "", None, None).await.unwrap();
-    db.create_message("msg2", t1, None, "Author", "[PATCH v2] Fix something", 1010, "body", "", "", None, None).await.unwrap();
-
+    db.create_message(
+        "msg1",
+        t1,
+        None,
+        "Author",
+        "[PATCH] Fix something",
+        1000,
+        "body",
+        "",
+        "",
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    db.create_message(
+        "msg2",
+        t1,
+        None,
+        "Author",
+        "[PATCH v2] Fix something",
+        1010,
+        "body",
+        "",
+        "",
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     // 2. Create Patchset v1 (Implicit)
     // [PATCH] Fix something
@@ -152,8 +179,36 @@ async fn test_merge_different_versions_series_should_fail() {
         .await
         .unwrap();
 
-    db.create_message("msg5", t1, None, "Author", "[PATCH 1/2] Fix something", 3000, "body", "", "", None, None).await.unwrap();
-    db.create_message("msg6", t1, None, "Author", "[PATCH v2 1/2] Fix something", 3010, "body", "", "", None, None).await.unwrap();
+    db.create_message(
+        "msg5",
+        t1,
+        None,
+        "Author",
+        "[PATCH 1/2] Fix something",
+        3000,
+        "body",
+        "",
+        "",
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    db.create_message(
+        "msg6",
+        t1,
+        None,
+        "Author",
+        "[PATCH v2 1/2] Fix something",
+        3010,
+        "body",
+        "",
+        "",
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     // 2. Create Patchset v1 (Implicit) - Part 1/2
     // [PATCH 1/2] Fix something

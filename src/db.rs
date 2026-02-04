@@ -3285,7 +3285,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        
+
         // Add patch to trigger index collision logic
         db.create_patch(ps_v5, "msg_v5", 1, "diff").await.unwrap();
 

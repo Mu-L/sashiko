@@ -369,7 +369,8 @@ impl Worker {
                             if same_call_count >= 5 {
                                 let error_msg = format!(
                                     "Loop detected: Tool '{}' called with same arguments {} times. Terminating.",
-                                    call.name, same_call_count + 1
+                                    call.name,
+                                    same_call_count + 1
                                 );
                                 warn!("{}", error_msg);
                                 return Ok(WorkerResult {

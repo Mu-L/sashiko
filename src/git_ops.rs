@@ -572,9 +572,7 @@ mod tests {
             .await?;
 
         // Commit 2
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&file_path)?;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&file_path)?;
         writeln!(file, "Change 1")?;
 
         Command::new("git")
