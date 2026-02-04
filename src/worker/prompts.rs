@@ -20,6 +20,9 @@ use tokio::fs;
 /// System identity prompt - used across all AI interactions
 pub const SYSTEM_IDENTITY: &str = "You're an expert Linux kernel developer and upstream maintainer with deep knowledge of Linux kernel, Operating Systems, CPU architectures, modern hardware and Linux kernel community standards and processes.";
 
+pub const TASK_INSTRUCTION: &str = "Run a deep dive regression analysis of the top commit in the Linux source tree.\n\n\
+Follow the Review Protocol and all Technical patterns and Subsystem Guidelines available in your context.\n";
+
 /// Files to exclude from context building
 const EXCLUDED_FILES: &[&str] = &[
     "review-core.md",
@@ -66,8 +69,7 @@ impl PromptRegistry {
     pub async fn get_user_task_prompt(&self, use_cache: bool) -> Result<String> {
         if use_cache {
             Ok(format!(
-                "{}\nRun a deep dive regression analysis of the top commit in the Linux source tree.\n\n\
-                 Follow the Review Protocol and all Technical patterns and Subsystem Guidelines available in your context.\n",
+                "{}\nAnalyze the provided patch.",
                 SYSTEM_IDENTITY
             ))
         } else {
@@ -180,6 +182,10 @@ impl PromptRegistry {
                 }
             }
         }
+
+        // 7. Task Instruction
+        context.push_str("\n\n# Task\n\n");
+        context.push_str(TASK_INSTRUCTION);
 
         Ok(context)
     }
@@ -298,7 +304,8 @@ mod tests {
         let prompt = registry.get_user_task_prompt(true).await.unwrap();
 
         assert!(prompt.contains(SYSTEM_IDENTITY));
-        assert!(prompt.contains("regression analysis"));
+        assert!(prompt.contains("Analyze the provided patch"));
+        assert!(!prompt.contains("regression analysis")); // It was moved to cache
         assert!(!prompt.contains("## Review Protocol")); // No embedded protocol in cached mode
     }
 
@@ -352,5 +359,13 @@ mod tests {
         // Verify exclusions
         assert!(!context.contains("Ignored Debugging"));
         assert!(!context.contains("Ignored Subdir Content"));
+    }
+
+    #[tokio::test]
+    async fn test_build_context_includes_instruction() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let registry = PromptRegistry::new(temp_dir.path().to_path_buf());
+        let context = registry.build_context().await.unwrap();
+        assert!(context.contains("Run a deep dive regression analysis"));
     }
 }

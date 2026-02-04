@@ -299,8 +299,9 @@ mod tests {
         // Construct the expected context string for an empty dir
         // Uses the constant from PromptRegistry
         let context_str = format!(
-            "{}\n\n# Subsystem Guidelines\n\n",
-            crate::worker::prompts::SYSTEM_IDENTITY
+            "{}\n\n# review-code.md\n\n# Subsystem Guidelines\n\n\n\n# Task\n\n{}",
+            crate::worker::prompts::SYSTEM_IDENTITY,
+            crate::worker::prompts::TASK_INSTRUCTION
         );
         let mut hasher = Sha256::new();
         hasher.update(&context_str);
@@ -397,8 +398,9 @@ mod tests {
         // Calculate expected display name
         // Must match PromptRegistry::build_context for empty dir
         let context_str = format!(
-            "{}\n\n# review-code.md\n\n# Subsystem Guidelines\n\n",
-            crate::worker::prompts::SYSTEM_IDENTITY
+            "{}\n\n# review-code.md\n\n# Subsystem Guidelines\n\n\n\n# Task\n\n{}",
+            crate::worker::prompts::SYSTEM_IDENTITY,
+            crate::worker::prompts::TASK_INSTRUCTION
         );
         let mut hasher = Sha256::new();
         hasher.update(&context_str);
