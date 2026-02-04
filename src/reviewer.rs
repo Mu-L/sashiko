@@ -90,8 +90,8 @@ impl Reviewer {
         };
 
         // Initialize CacheManager
-        // Assuming prompts are in "review-prompts/kernel" in CWD.
-        let prompts_dir = PathBuf::from("review-prompts/kernel");
+        // Assuming prompts are in "third_party/review-prompts/kernel" in CWD.
+        let prompts_dir = PathBuf::from("third_party/review-prompts/kernel");
         let client = Box::new(GeminiClient::new(settings.ai.model.clone()));
 
         // We need tool definitions for the cache.
@@ -423,7 +423,7 @@ impl Reviewer {
         );
 
         let repo_path = PathBuf::from(&ctx.settings.git.repository_path);
-        let prompts_hash = get_commit_hash(Path::new("review-prompts"), "HEAD")
+        let prompts_hash = get_commit_hash(Path::new("third_party/review-prompts"), "HEAD")
             .await
             .ok();
         let baseline_commit = get_commit_hash(&repo_path, baseline_ref).await.ok();

@@ -19,7 +19,7 @@ Sashiko relies on the set of carefully crafted prompts to guide the AI in its re
 
 *   [**review-prompts**](https://github.com/masoncl/review-prompts)
 
-This repository is included as a submodule in the `review-prompts/` directory.
+This repository is included as a submodule in the `third_party/review-prompts/` directory.
 
 ## Prerequisites
 

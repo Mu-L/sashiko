@@ -75,11 +75,11 @@ You're an expert Software Engineer with deep knowledge of Rust, Distributed Syst
 
 ## Configuration & Assets
 - `Settings.toml`: Main application configuration.
-- `review-prompts/`: Markdown templates/prompts for AI reviews, categorized by Linux subsystem.
+- `third_party/review-prompts/`: Markdown templates/prompts for AI reviews, categorized by Linux subsystem.
 - `static/`: Web assets (HTML, images).
 
 ## Data & External
-- `linux/`: Linux kernel source tree (reference/analysis).
+- `third_party/linux/`: Linux kernel source tree (reference/analysis).
 - `archives/`: Storage for mailing list archives.
 - `review_trees/`: Git worktrees used during the review process.
 

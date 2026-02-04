@@ -100,8 +100,8 @@ mod tests {
 
     fn get_test_paths() -> (PathBuf, PathBuf) {
         let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-        let linux_path = root.join("linux");
-        let prompts_path = root.join("review-prompts/kernel");
+        let linux_path = root.join("third_party/linux");
+        let prompts_path = root.join("third_party/review-prompts/kernel");
         (linux_path, prompts_path)
     }
 
@@ -173,7 +173,7 @@ mod tests {
         )]));
 
         let tools = ToolBox::new(linux_path, None);
-        let prompts = PromptRegistry::new(PathBuf::from("review-prompts/kernel"));
+        let prompts = PromptRegistry::new(PathBuf::from("third_party/review-prompts/kernel"));
         let mut worker = Worker::new(client, tools, prompts, 150_000, 25, 1.0, None);
 
         let patchset = json!({
@@ -210,7 +210,7 @@ mod tests {
         ]));
 
         let tools = ToolBox::new(linux_path, None);
-        let prompts = PromptRegistry::new(PathBuf::from("review-prompts/kernel"));
+        let prompts = PromptRegistry::new(PathBuf::from("third_party/review-prompts/kernel"));
         let mut worker = Worker::new(client, tools, prompts, 150_000, 25, 1.0, None);
 
         let patchset = json!({
@@ -273,7 +273,7 @@ mod tests {
         ]));
 
         let tools = ToolBox::new(linux_path, None);
-        let prompts = PromptRegistry::new(PathBuf::from("review-prompts/kernel"));
+        let prompts = PromptRegistry::new(PathBuf::from("third_party/review-prompts/kernel"));
         let mut worker = Worker::new(client, tools, prompts, 150_000, 25, 1.0, None);
 
         let patchset = json!({

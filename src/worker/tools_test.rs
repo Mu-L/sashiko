@@ -21,8 +21,8 @@ mod tests {
 
     fn get_test_paths() -> (PathBuf, PathBuf) {
         let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-        let linux_path = root.join("linux");
-        let prompts_path = root.join("review-prompts/kernel");
+        let linux_path = root.join("third_party/linux");
+        let prompts_path = root.join("third_party/review-prompts/kernel");
         (linux_path, prompts_path)
     }
 
@@ -95,7 +95,7 @@ mod tests {
         let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
         let temp_dir = tempfile::tempdir().unwrap();
         let worktree_path = temp_dir.path().to_path_buf();
-        let _prompts_path = root.join("review-prompts/kernel");
+        let _prompts_path = root.join("third_party/review-prompts/kernel");
         let toolbox = ToolBox::new(worktree_path.clone(), None);
 
         let rt = Runtime::new().unwrap();

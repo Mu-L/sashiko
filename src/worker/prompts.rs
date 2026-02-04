@@ -75,7 +75,7 @@ impl PromptRegistry {
         } else {
             let review_core = self.get_review_core().await?;
             Ok(format!(
-                "{} Using the prompt review-prompts/kernel/review-core.md run a deep dive regression analysis of the top commit in the Linux source tree.\n\n\
+                "{} Using the prompt kernel/review-core.md run a deep dive regression analysis of the top commit in the Linux source tree.\n\n\
                  ## Review Protocol (review-core.md)\n\
                  {}\n\n\
                  IMPORTANT: If you find regressions, you MUST use the `write_file` tool to create `review-inline.txt` as specified in the protocol.",

@@ -159,11 +159,11 @@ impl ToolBox {
         if self.prompts_path.is_some() {
             decls.push(FunctionDeclaration {
                 name: "read_prompt".to_string(),
-                description: "Read a specific prompt file from the prompt registry (e.g., 'mm.md', 'patterns/guarded-access.md').".to_string(),
+                description: "Read a specific prompt file from the prompt registry (e.g., 'mm.md', 'locking.md').".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
-                        "name": { "type": "string", "description": "Name of the prompt file relative to configured prompts directory (e.g. review-prompts/kernel)." }
+                        "name": { "type": "string", "description": "Name of the prompt file (e.g., 'patterns/BPF-001.md')." }
                     },
                     "required": ["name"]
                 }),
