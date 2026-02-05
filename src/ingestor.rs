@@ -444,7 +444,7 @@ impl Ingestor {
         }
 
         // Split the total limit evenly across groups (ceiling division)
-        let limit_per_group = (limit + groups.len() - 1) / groups.len();
+        let limit_per_group = limit.div_ceil(groups.len());
 
         for (name, group) in groups {
             let mut group_remaining = limit_per_group;
