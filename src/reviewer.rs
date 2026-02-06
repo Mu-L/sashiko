@@ -380,65 +380,6 @@ impl Reviewer {
                     Some(ctx.settings.ai.model.as_str()),
                     prompts_hash.as_deref(),
                     Some(logs.as_str()),
-                )
-                .await;
-
-            let _ = ctx
-                .db
-                .update_patchset_status(patchset_id, ReviewStatus::FailedToApply.as_str())
-                .await;
-        }
-    }
-                let commit_sha = patch_commits.get(index).cloned();
-                let baseline_ref = resolution.as_str();
-
-                match Self::process_patch_review(
-                    &ctx,
-                    patchset_id,
-                    *patch_id,
-                    *index,
-                    &baseline_ref,
-                    Some(baseline_id),
-                    &input_payload,
-                    commit_sha,
-                    Some(&worktree.path),
-                )
-                .await
-                {
-                    Ok(PatchResult::Success) => {}
-                    _ => {
-                        review_success = false;
-                        failed_patches += 1;
-                    }
-                }
-            }
-
-            // Cleanup worktree here since we kept it alive for reuse
-            let _ = worktree.remove().await;
-
-            let final_status = if review_success {
-                ReviewStatus::Reviewed.as_str().to_string()
-            } else if failed_patches == diffs.len() {
-                ReviewStatus::Failed.as_str().to_string() // All failed
-            } else {
-                ReviewStatus::Reviewed.as_str().to_string() // Partial success
-            };
-             
-            let _ = ctx
-                .db
-                .update_patchset_status(patchset_id, &final_status)
-                .await;
-        } else {
-            // No baseline found
-            warn!("No working baseline found for patchset {}", patchset_id);
-            let _ = ctx
-                .db
-                .update_patchset_baseline_info(
-                    patchset_id,
-                    None,
-                    Some(ctx.settings.ai.model.as_str()),
-                    prompts_hash.as_deref(),
-                    Some(logs.as_str()),
                     Some(ctx.settings.ai.provider.as_str()),
                 )
                 .await;
@@ -612,6 +553,7 @@ impl Reviewer {
         baseline_id: Option<i64>,
         input_payload: &Value,
         commit_sha: Option<String>,
+        prompts_hash: Option<&str>,
         worktree_path: Option<&Path>,
     ) -> Result<PatchResult> {
         info!(
@@ -641,6 +583,10 @@ impl Reviewer {
                 .create_review(
                     patchset_id,
                     Some(patch_id),
+                    &ctx.settings.ai.provider,
+                    &ctx.settings.ai.model,
+                    baseline_id,
+                    prompts_hash,
                 )
                 .await?;
 

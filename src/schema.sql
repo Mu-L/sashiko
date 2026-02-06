@@ -104,20 +104,14 @@ CREATE TABLE IF NOT EXISTS reviews (
     status TEXT DEFAULT 'Pending', -- Pending, Applying, In Review, Cancelled, Reviewed, Failed
     logs TEXT,
     inline_review TEXT,
+    baseline_id INTEGER,
+    model TEXT,
+    prompts_hash TEXT,
+    provider TEXT,
     FOREIGN KEY(patchset_id) REFERENCES patchsets(id),
     FOREIGN KEY(patch_id) REFERENCES patches(id),
-    FOREIGN KEY(interaction_id) REFERENCES ai_interactions(id)
-);
-
--- Deprecated: comments table was never really used, replaced by findings
-CREATE TABLE IF NOT EXISTS comments (
-    id INTEGER PRIMARY KEY,
-    review_id INTEGER NOT NULL,
-    file_path TEXT,
-    line_number INTEGER,
-    content TEXT,
-    severity TEXT, -- Info, Warning, Error
-    FOREIGN KEY(review_id) REFERENCES reviews(id)
+    FOREIGN KEY(interaction_id) REFERENCES ai_interactions(id),
+    FOREIGN KEY(baseline_id) REFERENCES baselines(id)
 );
 
 CREATE TABLE IF NOT EXISTS findings (
@@ -179,42 +173,6 @@ CREATE TABLE IF NOT EXISTS patchsets_subsystems (
     FOREIGN KEY(subsystem_id) REFERENCES subsystems(id)
 );
 
-CREATE TABLE IF NOT EXISTS tags (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-);
-
-CREATE TABLE IF NOT EXISTS messages_tags (
-    message_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (message_id, tag_id),
-    FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
-    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS threads_tags (
-    thread_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (thread_id, tag_id),
-    FOREIGN KEY(thread_id) REFERENCES threads(id) ON DELETE CASCADE,
-    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS patches_tags (
-    patch_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (patch_id, tag_id),
-    FOREIGN KEY(patch_id) REFERENCES patches(id) ON DELETE CASCADE,
-    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS patchsets_tags (
-    patchset_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (patchset_id, tag_id),
-    FOREIGN KEY(patchset_id) REFERENCES patchsets(id) ON DELETE CASCADE,
-    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
-);
 CREATE INDEX IF NOT EXISTS idx_patchsets_cover_message_id ON patchsets(cover_letter_message_id);
 
 CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id);

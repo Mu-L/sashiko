@@ -468,17 +468,25 @@ impl Database {
         &self,
         patchset_id: i64,
         patch_id: Option<i64>,
+        provider: &str,
+        model: &str,
+        baseline_id: Option<i64>,
+        prompts_hash: Option<&str>,
     ) -> Result<i64> {
         self.conn
             .execute(
-                "INSERT INTO reviews (patchset_id, patch_id, status, created_at)
-             VALUES (?, ?, 'Pending', ?)",
+                "INSERT INTO reviews (patchset_id, patch_id, status, created_at, provider, model, baseline_id, prompts_hash)
+             VALUES (?, ?, 'Pending', ?, ?, ?, ?, ?)",
                 libsql::params![
                     patchset_id,
                     patch_id,
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)?
-                        .as_secs() as i64
+                        .as_secs() as i64,
+                    provider,
+                    model,
+                    baseline_id,
+                    prompts_hash
                 ],
             )
             .await?;
