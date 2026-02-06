@@ -1357,21 +1357,6 @@ impl Database {
                     )
                     .await?;
 
-                // 4. Merge tags
-                self.conn
-                    .execute(
-                        "UPDATE OR IGNORE threads_tags SET thread_id = ? WHERE thread_id = ?",
-                        libsql::params![thread_id, old_thread_id],
-                    )
-                    .await?;
-                // Delete any remaining (conflicting) tag mappings for the old thread
-                self.conn
-                    .execute(
-                        "DELETE FROM threads_tags WHERE thread_id = ?",
-                        libsql::params![old_thread_id],
-                    )
-                    .await?;
-
                 // 5. Delete old thread
                 self.conn
                     .execute(
@@ -1724,15 +1709,6 @@ impl Database {
                     .execute(
                         "DELETE FROM patchsets_subsystems WHERE patchset_id = ?",
                         libsql::params![merge_from_id],
-                    )
-                    .await?;
-
-                // Merge tags
-                self.conn
-                    .execute(
-                        "INSERT OR IGNORE INTO patchsets_tags (patchset_id, tag_id)
-                         SELECT ?, tag_id FROM patchsets_tags WHERE patchset_id = ?",
-                        libsql::params![target_id, merge_from_id],
                     )
                     .await?;
 
