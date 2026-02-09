@@ -1344,7 +1344,7 @@
                 let totalTokens = 0;
                 reviews.forEach(r => totalTokens += (r.tokens_in || 0) + (r.tokens_out || 0) + (r.tokens_cached || 0));
 
-                const borderStyle = index === 0 ? '' : 'border-top:1px solid #eee; padding-top:8px;';
+                const borderStyle = '';
 
                 let statusHtml = '';
                 if (patch && (patch.status === 'error' || patch.status === 'failed')) {
@@ -1358,9 +1358,6 @@
                         </h3>
                         ${statusHtml}
                         ${renderReviewList(reviews)}
-                        <div style="text-align: right; margin-top: 8px;">
-                             <a href="javascript:void(0)" onclick="document.getElementById('ai-reviews').scrollIntoView({behavior: 'smooth'})" style="font-size: 0.85em; color: #999; text-decoration: none;">↑ Back to Summary</a>
-                        </div>
                     </div>
                 `;
 
@@ -1450,6 +1447,7 @@
             }
 
             const modelName = data.model_name || '-';
+            const providerModel = data.provider ? `${data.provider}/${modelName}` : modelName;
             const promptsHash = data.prompts_git_hash ? data.prompts_git_hash.substring(0, 8) : '-';
             
             let baselineStr = '-';
@@ -1497,7 +1495,7 @@
                     <div class="kv"><div class="label">Date:</div><div>${date}</div></div>
                     <div class="kv"><div class="label">Subsystems:</div><div>${subsystemsHtml}</div></div>
                     <div class="kv"><div class="label">Patches:</div><div>${data.received_parts || 0} / ${data.total_parts || 0}</div></div>
-                    <div class="kv"><div class="label">Model:</div><div>${escapeHtml(modelName)}</div></div>
+                    <div class="kv"><div class="label">Model:</div><div>${escapeHtml(providerModel)}</div></div>
                     <div class="kv"><div class="label">Prompts:</div><div>${escapeHtml(promptsHash)}</div></div>
                 </div>
                 
@@ -1517,12 +1515,9 @@
         }
 
         function renderReviewCard(r) {
-            const rDate = r.created_at ? formatDate(r.created_at, true) : '-';
-            const providerModel = `${r.provider || '?'}/${r.model || '?'}`;
             const uniqueId = Math.random().toString(36).substr(2, 9);
 
             let displayResult = '';
-            let traceHtml = '';
             
             // 1. Try to parse output for structured findings
             let parsedFindings = false;
@@ -1530,23 +1525,6 @@
                 if (r.output) {
                     const outputJson = JSON.parse(r.output);
                     
-                    // Trace
-                    if (outputJson.analysis_trace?.length) {
-                        const traceId = `trace-${uniqueId}`;
-                        const entries = outputJson.analysis_trace.map((t, i) => {
-                            let content = typeof t === 'string' ? t : (t.step && t.thought ? `Step ${t.step}: ${t.thought}` : JSON.stringify(t, null, 2));
-                            return `<div>${i + 1}) ${escapeHtml(content)}</div>`;
-                        }).join('');
-                        traceHtml = `
-                            <div style="margin-top:8px;">
-                                <button class="toggle-btn" onclick="toggleCollapsible('${traceId}', this)">▶ Reasoning</button>
-                                <div id="${traceId}" class="collapsible">
-                                    <div class="log-block" style="max-height:200px;">${entries}</div>
-                                </div>
-                            </div>
-                        `;
-                    }
-
                     // Findings
                     if (outputJson.findings && Array.isArray(outputJson.findings)) {
                         let counts = { low: 0, medium: 0, high: 0, critical: 0 };
@@ -1589,18 +1567,11 @@
                 }
             }
 
-            let baselineStr = '-';
-            if (r.baseline) {
-                const parts = [];
-                if (r.baseline.branch) parts.push(r.baseline.branch);
-                if (r.baseline.commit) parts.push(r.baseline.commit.substring(0, 8));
-                baselineStr = parts.join(' / ');
-            }
-
-            const tokensIn = (r.tokens_in || 0).toLocaleString();
-            const tokensOut = (r.tokens_out || 0).toLocaleString();
-            const tokensCached = (r.tokens_cached || 0).toLocaleString();
-            const tokenStr = `In: ${tokensIn} · Cached: ${tokensCached} · Out: ${tokensOut}`;
+            const tokensIn = (r.tokens_in || 0);
+            const tokensOut = (r.tokens_out || 0);
+            const tokensCached = (r.tokens_cached || 0);
+            const cachedPct = tokensIn > 0 ? Math.round((tokensCached / tokensIn) * 100) : 0;
+            const tokenStr = `In: ${tokensIn.toLocaleString()} (${cachedPct}% cached) · Out: ${tokensOut.toLocaleString()}`;
 
             let inlineHtml = '';
             if (r.inline_review) {
@@ -1626,24 +1597,24 @@
             return `
                 <div class="review-card">
                     <div class="review-meta">
-                        <div class="review-meta-label">Date:</div>
-                        <div style="display:flex; justify-content:space-between;">
-                            <span>${rDate}</span>
+                        ${showDetails ? `
+                        <div class="review-meta-label">Result:</div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span>${displayResult}</span>
                             <span class="status-badge status-${statusRaw.split(' ')[0]}">${statusRaw}</span>
                         </div>
-                        <div class="review-meta-label">Baseline:</div><div>${baselineStr}</div>
-                        <div class="review-meta-label">Model:</div><div>${providerModel}</div>
-                        <div class="review-meta-label">Prompts:</div><div>${r.prompts_hash ? r.prompts_hash.substring(0, 8) : '-'}</div>
-                        ${showDetails ? `
-                        <div class="review-meta-sep"></div>
-                        <div class="review-meta-label">Result:</div><div>${displayResult}</div>
                         <div class="review-meta-label">Tokens:</div><div>${tokenStr}</div>
-                        ` : ''}
+                        ` : `
+                        <div class="review-meta-label">Status:</div>
+                        <div><span class="status-badge status-${statusRaw.split(' ')[0]}">${statusRaw}</span></div>
+                        `}
                     </div>
                     ${showDetails ? `
                     ${inlineHtml}
-                    ${traceHtml}
-                    <div style="margin-top:8px;"><a href="#/log/${r.id}" class="toggle-btn">View Raw Log</a></div>
+                    <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
+                        ${r.id ? `<a href="#/log/${r.id}" style="font-weight:600; color:#666; text-decoration:none;" onmouseover="this.style.color='#007bff'" onmouseout="this.style.color='#666'">View Raw Log</a>` : '<span></span>'}
+                        <a href="javascript:void(0)" onclick="document.getElementById('ai-reviews').scrollIntoView({behavior: 'smooth'})" style="font-size: 0.85em; color: #999; text-decoration: none;">↑ Back to Summary</a>
+                    </div>
                     ` : ''}
                 </div>
             `;
