@@ -245,28 +245,38 @@ impl Worker {
                 "properties": {
                     "analysis_trace": {
                         "type": "array",
-                        "items": { "type": "string" }
+                        "items": { "type": "string" },
+                        "description": "Step-by-step analysis trace."
                     },
-                    "verdict": { "type": "string" },
+                    "summary": { "type": "string", "description": "High-level summary of the review." },
                     "findings": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "file": { "type": "string" },
-                                "line": { "type": "integer" },
                                 "severity": {
                                     "type": "string",
-                                    "enum": ["Low", "Medium", "High", "Critical"]
+                                    "enum": ["Low", "Medium", "High", "Critical"],
+                                    "description": "Severity of the finding."
                                 },
-                                "message": { "type": "string" },
-                                "suggestion": { "type": "string" }
+                                "severity_explanation": {
+                                    "type": "string",
+                                    "description": "Explain why this severity level was chosen, referencing guidelines in severity.md."
+                                },
+                                "problem": {
+                                    "type": "string",
+                                    "description": "Description of the problem."
+                                },
+                                "suggestion": {
+                                    "type": "string",
+                                    "description": "Suggested fix."
+                                }
                             },
-                            "required": ["file", "line", "severity", "message"]
+                            "required": ["severity", "severity_explanation", "problem"]
                         }
                     }
                 },
-                "required": ["analysis_trace", "verdict", "findings"]
+                "required": ["analysis_trace", "summary", "findings"]
             });
 
             // Enforce token budget by pruning

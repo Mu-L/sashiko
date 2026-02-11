@@ -58,8 +58,7 @@ mod tests {
                     content: Content {
                         role: "model".to_string(),
                         parts: vec![Part::Text {
-                            text: "```json\n{\"summary\": \"Fallback\", \"score\": 0, \"verdict\": \"Skip\", \"findings\": [], \"analysis_trace\": []}
-```".to_string(),
+                            text: "```json\n{\"summary\": \"Fallback\", \"findings\": [], \"analysis_trace\": []}\n```".to_string(),
                             thought_signature: None,
                         }],
                     },
@@ -163,8 +162,6 @@ mod tests {
         let mock_response = json!({
             "analysis_trace": ["Trace 1"],
             "summary": "Mock summary",
-            "score": 10,
-            "verdict": "Pass",
             "findings": []
         });
 
@@ -199,8 +196,6 @@ mod tests {
         let final_response = json!({
             "analysis_trace": ["Read README", "Analyzed"],
             "summary": "README is good",
-            "score": 5,
-            "verdict": "Pass",
             "findings": []
         });
 
@@ -318,7 +313,7 @@ mod tests {
                 json!({ "path": "review-inline.txt", "content": "test" }),
             ),
             create_text_response(
-                "```json\n{\"summary\": \"Done\", \"score\": 0, \"verdict\": \"Pass\", \"findings\": [], \"analysis_trace\": []}\n```",
+                "```json\n{\"summary\": \"Done\", \"findings\": [], \"analysis_trace\": []}\n```",
             ),
         ]));
 
