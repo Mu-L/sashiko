@@ -1,0 +1,62 @@
+[
+    {
+        "Commit": "1810350b04ef38b375c64304e142de96d90404e1",
+        "Fixed-by": "29fb415a6a72c9207d118dd0a7a37184a14a3680",
+        "subsystem": "btrfs",
+        "problem_description": "Memory leak of stripe_uptodate_bitmap in btrfs_raid_bio due to missing deallocation."
+    },
+    {
+        "Commit": "b168ed458ddecc176f3b9a1f4bcd83d7a4541c14",
+        "Fixed-by": "43151f812886be1855d2cba059f9c93e4729460b",
+        "subsystem": "cgroup",
+        "problem_description": "NULL pointer dereference when writing to dmem.max without specifying a limit value"
+    },
+    {
+        "Commit": "6a2968aaf50c7a22fced77a5e24aa636281efca8",
+        "Fixed-by": "d2492688bb9fed6ab6e313682c387ae71a66ebae",
+        "subsystem": "nfc",
+        "problem_description": "The command workqueue is destroyed before unregistering from rfkill, leading to a race where nci_close_device accesses the freed workqueue."
+    },
+    {
+        "Commit": "6be09580df5cf87e601c1ec56b9a0c891d3a0bc8",
+        "Fixed-by": "67b3da8d3051fba7e1523b3afce4f71c658f15f8",
+        "subsystem": "smb",
+        "problem_description": "The SendReceive() function fails to free the response buffer when cifs_send_recv() returns an error."
+    },
+    {
+        "Commit": "b168ed458ddecc176f3b9a1f4bcd83d7a4541c14",
+        "Fixed-by": "592a68212c5664bcaa88f24ed80bf791282790fe",
+        "subsystem": "cgroup",
+        "problem_description": "suspicious RCU usage warning in dmem_cgroup_unregister_region() due to use of list_for_each_rcu() without RCU read lock"
+    },
+    {
+        "Commit": "d642b012df70a76dd5723f2d426b40bffe83ac49",
+        "Fixed-by": "f0813bcd2d9d97fdbdf2efb9532ab03ae92e99e6",
+        "subsystem": "net/wwan",
+        "problem_description": "Potential buffer overflow in skb fragments array in t7xx_dpmaif_set_frag_to_skb() due to missing check for MAX_SKB_FRAGS."
+    },
+    {
+        "Commit": "f394576eb11dbcd3a740fa41e577b97f0720d26e",
+        "Fixed-by": "2724138b2f7f6299812b3404e23b124304834759",
+        "subsystem": "iommufd",
+        "problem_description": "batch_clear() does not initialize the 'kind' field of struct pfn_batch, leading to a KMSAN warning about an uninitialized value read in batch_add_pfn_num()."
+    },
+    {
+        "Commit": "a91befde350375b1ff954635acdde14dc92cd9a8",
+        "Fixed-by": "dd9e2f5b38f1fdd49b1ab6d3a85f81c14369eacc",
+        "subsystem": "flex_proportions",
+        "problem_description": "A deadlock can occur if fprop_new_period is interrupted by a hardirq that attempts to read the same sequence counter."
+    },
+    {
+        "Commit": "f0887e2a52d4ef3f246e508bd1d947dc13988643",
+        "Fixed-by": "a54afbc8a2138f8c2490510cf26cde188d480c43",
+        "subsystem": "nvme",
+        "problem_description": "The sg_list and sge parameters were swapped in the call to nvme_free_sgls(), causing incorrect DMA unmapping and potential data corruption."
+    },
+    {
+        "Commit": "e255612b5ed9f179abe8196df7c2ba09dd227900",
+        "Fixed-by": "e3a43633023e3cacaca60d4b8972d084a2b06236",
+        "subsystem": "smb/client",
+        "problem_description": "Memory is leaked because the response buffer from a failed SMB2_open call is not freed before retrying the operation."
+    }
+]

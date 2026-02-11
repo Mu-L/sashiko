@@ -1,0 +1,602 @@
+[
+    {
+        "Commit": "1810350b04ef38b375c64304e142de96d90404e1",
+        "Fixed-by": "29fb415a6a72c9207d118dd0a7a37184a14a3680",
+        "subsystem": "btrfs",
+        "problem_description": "Memory leak of stripe_uptodate_bitmap in btrfs_raid_bio due to missing deallocation."
+    },
+    {
+        "Commit": "6be09580df5cf87e601c1ec56b9a0c891d3a0bc8",
+        "Fixed-by": "67b3da8d3051fba7e1523b3afce4f71c658f15f8",
+        "subsystem": "smb",
+        "problem_description": "The SendReceive() function fails to free the response buffer when cifs_send_recv() returns an error."
+    },
+    {
+        "Commit": "e255612b5ed9f179abe8196df7c2ba09dd227900",
+        "Fixed-by": "e3a43633023e3cacaca60d4b8972d084a2b06236",
+        "subsystem": "smb/client",
+        "problem_description": "Memory is leaked because the response buffer from a failed SMB2_open call is not freed before retrying the operation."
+    },
+    {
+        "Commit": "b168ed458ddecc176f3b9a1f4bcd83d7a4541c14",
+        "Fixed-by": "99a2ef500906138ba58093b9893972a5c303c734",
+        "subsystem": "cgroup",
+        "problem_description": "A use-after-free occurs in dmem pools because they are freed immediately upon region unregistration even if still referenced by active charges."
+    },
+    {
+        "Commit": "b168ed458ddecc176f3b9a1f4bcd83d7a4541c14",
+        "Fixed-by": "592a68212c5664bcaa88f24ed80bf791282790fe",
+        "subsystem": "cgroup",
+        "problem_description": "suspicious RCU usage warning in dmem_cgroup_unregister_region() due to use of list_for_each_rcu() without RCU read lock"
+    },
+    {
+        "Commit": "b168ed458ddecc176f3b9a1f4bcd83d7a4541c14",
+        "Fixed-by": "43151f812886be1855d2cba059f9c93e4729460b",
+        "subsystem": "cgroup",
+        "problem_description": "NULL pointer dereference when writing to dmem.max without specifying a limit value"
+    },
+    {
+        "Commit": "778b8ebe5192e7a7f00563a7456517dfa63e1d90",
+        "Fixed-by": "8e24994872361212531a952c93adb01c485148f1",
+        "subsystem": "kbuild",
+        "problem_description": "building external modules with W= specified fails because kernel-doc.py cannot import the kdoc module"
+    },
+    {
+        "Commit": "90942f9fac05702065ff82ed0bade0d08168d4ea",
+        "Fixed-by": "76ed27608f7dd235b727ebbb12163438c2fbb617",
+        "subsystem": "perf",
+        "problem_description": "perf crashes with a NULL pointer dereference when profiling an exiting user task that has cleared its `mm` field."
+    },
+    {
+        "Commit": "a110a81c52a9de73e2e57e826dd3bf0fd4c22226",
+        "Fixed-by": "115135422562e2f791e98a6f55ec57b2da3b3a95",
+        "subsystem": "sched",
+        "problem_description": "The dl_server gets stuck because dl_defer_running is not cleared when the CBS wakeup rules demand a replenish."
+    },
+    {
+        "Commit": "7926ba2143d8fef40bb940232818c7363e33598c",
+        "Fixed-by": "8a44241b0b83a6047c5448da1fff03fcc29496b5",
+        "subsystem": "drm/xe",
+        "problem_description": "Double-free of nvm memory when auxiliary_device_add fails because both the error path and the device release callback attempt to free it"
+    },
+    {
+        "Commit": "c28bfb107daca4e9ba2e567a412e885933057282",
+        "Fixed-by": "2da8fbb8f1c17129a08c1e0e42c71eabdca76062",
+        "subsystem": "drm/xe",
+        "problem_description": "The auxiliary NVM device is not cleaned up on probe failure, leading to duplicate sysfs entry warnings on subsequent probe attempts."
+    },
+    {
+        "Commit": "4ab5efcc2829a38a3adcfdd9cd0c0e0eb6fb6939",
+        "Fixed-by": "bdde21d3e77da55121885fd2ef42bc6a15ac2f0c",
+        "subsystem": "lsm",
+        "problem_description": "The /proc/sys/vm/mmap_min_addr sysctl entry is not created when CONFIG_SECURITY is disabled."
+    },
+    {
+        "Commit": "b3e9bfd86658b562a33b1ee8563d59a593327aaf",
+        "Fixed-by": "3eb46fbb601f9a0b4df8eba79252a0a85e983044",
+        "subsystem": "drm/amdgpu",
+        "problem_description": "Unnecessary reinitialization and remapping of kernel gfx queues after a reset causes queue reset failures on APUs."
+    },
+    {
+        "Commit": "2674f1ef29f46ae81464d0ac44b7824deb9de85c",
+        "Fixed-by": "c1ed856c09d0d730c2f63bbb757cb6011db148f9",
+        "subsystem": "drm/xe",
+        "problem_description": "pci_dev pointer is used in pci_dbg() after its reference is released by pci_dev_put() in is_bound()"
+    },
+    {
+        "Commit": "9fd1ff5d2ac7181844735806b0a703c942365291",
+        "Fixed-by": "426ca15c7f6cb6562a081341ca88893a50c59fa2",
+        "subsystem": "net",
+        "problem_description": "skb_segment_list incorrectly processes GRO packets containing a frag_list that have been modified by XLAT, as XLAT only translates the head SKB leaving frag_list entries untranslated."
+    },
+    {
+        "Commit": "811f67c51636d43791995bf483c5c1904900b531",
+        "Fixed-by": "008bec8ffe6e7746588d1e12c5b3865fa478fc91",
+        "subsystem": "platform/x86/intel",
+        "problem_description": "The debugfs status file is created with read-only permissions, preventing the use of its write callback."
+    },
+    {
+        "Commit": "a34fc329b1895fc8a6eb12099adc47009421ba6a",
+        "Fixed-by": "6222883af286e2feb3c9ff2bf9fd8fdf4220c55a",
+        "subsystem": "platform/x86",
+        "problem_description": "The hp-bioscfg driver attempts to register kobjects with empty names if a BIOS attribute name decodes to an empty string."
+    },
+    {
+        "Commit": "702e80470a3359ce02b3f846f48f6db4ac7fd837",
+        "Fixed-by": "1eab33aa63c993685dd341e03bd5b267dd7403fa",
+        "subsystem": "mac80211",
+        "problem_description": "The TTLM element parser incorrectly reads the link mapping presence byte when the default mapping is indicated, causing a buffer overread."
+    },
+    {
+        "Commit": "9420139f516d7fbc248ce17f35275cb005ed98ea",
+        "Fixed-by": "56c430c7f06d838fe3b2077dbbc4cc0bf992312b",
+        "subsystem": "dma",
+        "problem_description": "dma_alloc_from_pool() unconditionally warns on allocation failure, ignoring __GFP_NOWARN and failing to distinguish between exhausted pools and missing pools."
+    },
+    {
+        "Commit": "06d0e3723647610936660c3c2a144c6243367c3c",
+        "Fixed-by": "0ea05c4f7527a98f5946f96c829733788934311d",
+        "subsystem": "riscv",
+        "problem_description": "COMPAT_UTS_MACHINE was incorrectly defined as \"riscv\" instead of \"riscv32\"."
+    },
+    {
+        "Commit": "d4c81bbb8600257fd3076d0196cb08bd2e5bdf24",
+        "Fixed-by": "c5d5ecf21fdd9ce91e6116feb3aa83cee73352cc",
+        "subsystem": "selftests",
+        "problem_description": "the mptcp_join.sh selftest incorrectly expects 2 MP_JOIN ACKs instead of 3 on older kernels"
+    },
+    {
+        "Commit": "15cc10453398c22f78f6c2b897119ecce5e5dd89",
+        "Fixed-by": "2ef9e3a3845d0a20b62b01f5b731debd0364688d",
+        "subsystem": "mptcp",
+        "problem_description": "subflow closed events do not contain an error field when a subflow is closed with an error"
+    },
+    {
+        "Commit": "15cc10453398c22f78f6c2b897119ecce5e5dd89",
+        "Fixed-by": "dccf46179ddd6c04c14be8ed584dc54665f53f0e",
+        "subsystem": "mptcp",
+        "problem_description": "sock_error() clears subflow errors unconditionally even when not propagated, resulting in missing error codes for later events."
+    },
+    {
+        "Commit": "d82809b6c5f2676b382f77a5cbeb1a5d91ed2235",
+        "Fixed-by": "8467458dfa61b37e259e3485a5d3e415d08193c1",
+        "subsystem": "mptcp",
+        "problem_description": "subflow closed events are re-sent with less info when the initial subflow is disconnected after an error"
+    },
+    {
+        "Commit": "d82809b6c5f2676b382f77a5cbeb1a5d91ed2235",
+        "Fixed-by": "280d654324e33f8e6e3641f76764694c7b64c5db",
+        "subsystem": "mptcp",
+        "problem_description": "duplicate SUB_CLOSED events are sent for a disconnected subflow because the event suppression flag is cleared during context reset"
+    },
+    {
+        "Commit": "a5e400a985df8041ed4659ed1462aa9134318130",
+        "Fixed-by": "011be342dd24b5168a5dcf408b14c3babe503341",
+        "subsystem": "net/mlx5e",
+        "problem_description": "ESN replay window setup logic intended only for packet offload is incorrectly executed for IPsec crypto offload, triggering a WARN_ON for unsupported window sizes"
+    },
+    {
+        "Commit": "dd3dd7263cdeac601d0ecc5f04d87eee0a8277aa",
+        "Fixed-by": "a8f930b7be7be3f18f14446df461e17137400407",
+        "subsystem": "net/mlx5",
+        "problem_description": "Reading the vhca_id debugfs file before HCA capabilities are initialized causes a NULL pointer dereference."
+    },
+    {
+        "Commit": "3c9c34c32bc653a8992fef7d525889254d90b307",
+        "Fixed-by": "2610a3d65691a1301ab10c92ff6ebab0bedf9199",
+        "subsystem": "net/mlx5",
+        "problem_description": "the reset_root_to_default capability check in mlx5_fs_cmd_set_tx_flow_table_root is inverted, causing the function to incorrectly return -EOPNOTSUPP when the capability is supported"
+    },
+    {
+        "Commit": "25c6a5ab151fb9c886552bf5aa7cbf2a5c6e96af",
+        "Fixed-by": "2aa1545ba8d4801fba5be83a404e28014b80196a",
+        "subsystem": "net",
+        "problem_description": "A clock warning occurs during driver removal because the clock is disabled twice: once by the driver manually and once by the devm subsystem."
+    },
+    {
+        "Commit": "e5a1861a298eb386bf22c2cfc95b147f65c6071c",
+        "Fixed-by": "a62f7d62d2b115e67c7224e36ace4ef12a9650b4",
+        "subsystem": "net/mlx5e",
+        "problem_description": "mlx5e_psp_handle_tx_skb incorrectly assumes that all GSO skbs are IPv6, leading to incorrect TCP checksum calculation for IPv4 packets."
+    },
+    {
+        "Commit": "971502d77faa50a37c89bc6d172450294ad9a5fd",
+        "Fixed-by": "cc0cf10fdaeadf5542d64a55b5b4120d3df90b7d",
+        "subsystem": "net",
+        "problem_description": "The static key check for netfilter hooks used the undefined macro HAVE_JUMP_LABEL instead of CONFIG_JUMP_LABEL."
+    },
+    {
+        "Commit": "6a2968aaf50c7a22fced77a5e24aa636281efca8",
+        "Fixed-by": "d2492688bb9fed6ab6e313682c387ae71a66ebae",
+        "subsystem": "nfc",
+        "problem_description": "The command workqueue is destroyed before unregistering from rfkill, leading to a race where nci_close_device accesses the freed workqueue."
+    },
+    {
+        "Commit": "cafe563591446cf80bfbc2fe3bc72a2e36cf1060",
+        "Fixed-by": "4da7c5c3ec34d839bba6e035c3d05c447a2f9d4f",
+        "subsystem": "bcache",
+        "problem_description": "Discard requests on a detached bcache device fail to end I/O accounting, resulting in 100% disk utilization reported by iostat."
+    },
+    {
+        "Commit": "8a6e02d0c00e7b62e6acb74146878bb91e9e7e31",
+        "Fixed-by": "0fd17e5983337231dc655e9ca0095d2ca3f47405",
+        "subsystem": "of",
+        "problem_description": "The device tree default CMA region is reserved even when overridden by the cma= kernel parameter."
+    },
+    {
+        "Commit": "b5725cfa4120a4d234ab112aad151d731531d093",
+        "Fixed-by": "20e01bba2ae4898ce65cdcacd1bd6bec5111abd9",
+        "subsystem": "firewire",
+        "problem_description": "accessing the transaction list without holding the card lock during AT request completion causes a race condition with concurrent AR response processing"
+    },
+    {
+        "Commit": "c68cbbfd54c68485ac67b5a04c06feacdce15fec",
+        "Fixed-by": "b1defcdc4457649db236415ee618a7151e28788c",
+        "subsystem": "drm/amdgpu",
+        "problem_description": "A hang occurs during queue reset on gfx11 APUs because the EXEC_COUNT field in the conditional execution packet is not patched during gfx shadow handling."
+    },
+    {
+        "Commit": "f394576eb11dbcd3a740fa41e577b97f0720d26e",
+        "Fixed-by": "2724138b2f7f6299812b3404e23b124304834759",
+        "subsystem": "iommufd",
+        "problem_description": "batch_clear() does not initialize the 'kind' field of struct pfn_batch, leading to a KMSAN warning about an uninitialized value read in batch_add_pfn_num()."
+    },
+    {
+        "Commit": "f0887e2a52d4ef3f246e508bd1d947dc13988643",
+        "Fixed-by": "a54afbc8a2138f8c2490510cf26cde188d480c43",
+        "subsystem": "nvme",
+        "problem_description": "The sg_list and sge parameters were swapped in the call to nvme_free_sgls(), causing incorrect DMA unmapping and potential data corruption."
+    },
+    {
+        "Commit": "efa03dab7ce4ed786b131f412440e2fd45fba11f",
+        "Fixed-by": "5815d9303c67cef5f47cd01e73b671e6b9c40ef3",
+        "subsystem": "iommu",
+        "problem_description": "Unmap operations suffer from performance degradation due to unnecessary cache flushing of unmodified memory ranges."
+    },
+    {
+        "Commit": "39cfd5b12160be4f57df1c3ba60139741c827616",
+        "Fixed-by": "6d60354ea2f90352b22039ed8371c4f4321df90e",
+        "subsystem": "kbuild",
+        "problem_description": "modules.builtin.modinfo is incorrectly created with executable permissions (0755) instead of 0644 because objcopy inherits attributes from the source ELF file vmlinux.unstripped"
+    },
+    {
+        "Commit": "a7c699d090a1f3795c3271c2b399230e182db06e",
+        "Fixed-by": "62089b804895e845f82e132ea9d46a1fc53ed5a7",
+        "subsystem": "kbuild",
+        "problem_description": "Module signatures are stripped during RPM package generation, preventing modules from loading when lockdown is enabled."
+    },
+    {
+        "Commit": "fcbc51e54d2aa9d402206601f4894251049e5d77",
+        "Fixed-by": "e535c23513c63f02f67e3e09e0787907029efeaf",
+        "subsystem": "drm/imx",
+        "problem_description": "The reference to the DDC I2C adapter acquired during probe is leaked on probe failure or driver unbind."
+    },
+    {
+        "Commit": "7b61212f2a07a5afd213c8876e52b5c9946441e2",
+        "Fixed-by": "b2cf569ed81e7574d4287eaf3b2c38690a934d34",
+        "subsystem": "gpio",
+        "problem_description": "The brcmstb driver failed to map hwirq to bank correctly because it relied on the downward GPIO numbering which was replaced by upward numbering."
+    },
+    {
+        "Commit": "a479a27f4da4d1f8a9b7540a800f80253ed1bad0",
+        "Fixed-by": "a040afa3bca415019d96a586b96b5f17b1f55a90",
+        "subsystem": "gve",
+        "problem_description": "The driver probe fails and renders the device unusable if the clock initialization fails."
+    },
+    {
+        "Commit": "f62b8bb8f2d30582f30f51e85a8c0e1260125d7e",
+        "Fixed-by": "476681f10cc1e0e56e26856684e75d4678b072b2",
+        "subsystem": "net/mlx5e",
+        "problem_description": "The ndo_get_stats64 callback fails to report generic netdev statistics, causing network stack errors to be invisible."
+    },
+    {
+        "Commit": "9be6c21fdcf8a7ec48262bb76f78c17ac2761ac6",
+        "Fixed-by": "f67666938ae626cbda63fbf5176b3583c07e7124",
+        "subsystem": "net/mlx5e",
+        "problem_description": "NULL pointer dereference occurs during TC flow deletion because the driver iterates over all possible ports instead of only existing devcom peers."
+    },
+    {
+        "Commit": "7a9fb35e8c3a67145fca262c304de65cb2f83abf",
+        "Fixed-by": "2ae8c7edea87f54609bda30963a099cd3c64b0bb",
+        "subsystem": "net/mlx5",
+        "problem_description": "Unbinding the uplink ETH driver while the E-Switch is in switchdev mode leads to netdevice reference counting issues."
+    },
+    {
+        "Commit": "6ee27ee27ba8b2e725886951ba2d2d87f113bece",
+        "Fixed-by": "ee8d07cd5730038e33bf5e551448190bbd480eb8",
+        "subsystem": "drm/amd/pm",
+        "problem_description": "A race condition occurs in `amdgpu_dpm_set_powergating_by_smu` because the power state check is performed before acquiring the mutex."
+    },
+    {
+        "Commit": "dd299441654fd8209056c7985ddf2373ebaba6ed",
+        "Fixed-by": "8b1ecc9377bc641533cd9e76dfa3aee3cd04a007",
+        "subsystem": "drm/amdgpu",
+        "problem_description": "NULL pointer dereference in amdgpu_gmc_filter_faults_remove on APUs due to unconditional access to the uninitialized ih1 interrupt ring."
+    },
+    {
+        "Commit": "4f1fe43c920b92ac41c34f151fe452d46936b79d",
+        "Fixed-by": "05faf2c0a76581d0a7fdbb8ec46477ba183df95b",
+        "subsystem": "ice",
+        "problem_description": "UDP checksum mismatches are incorrectly counted as interface receive errors."
+    },
+    {
+        "Commit": "2a5dc090b92cfa5270e20056074241c6db5c9cdd",
+        "Fixed-by": "9bb30be4d89ff9a8d7ab1aa0eb2edaca83431f85",
+        "subsystem": "ice",
+        "problem_description": "NULL pointer dereference in ice_vsi_set_napi_queues during resume from suspend when rings or q_vectors are NULL"
+    },
+    {
+        "Commit": "29cb3b8d95c76a1d509029701435ed6b9e96a732",
+        "Fixed-by": "100cf7b4ca6ed770ec4287f3789b1da2e340a05a",
+        "subsystem": "ixgbe",
+        "problem_description": "The ixgbe_recovery_probe function incorrectly re-initializes the already initialized hw->aci.lock mutex and erroneously destroys it on failure."
+    },
+    {
+        "Commit": "29cb3b8d95c76a1d509029701435ed6b9e96a732",
+        "Fixed-by": "638344712aefeba97b6e0d90f560815fd88abd0f",
+        "subsystem": "ixgbe",
+        "problem_description": "Memory leaks occur when ixgbe_recovery_probe() fails because it does not free resources (like io_addr and mac_table) allocated in ixgbe_probe()."
+    },
+    {
+        "Commit": "91581c4b3f29e2e22aeb1a62e842d529ca638b2d",
+        "Fixed-by": "53ad4a948a4586359b841d607c08fb16c5503230",
+        "subsystem": "gpio",
+        "problem_description": "mutex_unlock is called on freed memory in the configfs release path because the device is freed before the mutex guard releases the lock."
+    },
+    {
+        "Commit": "2c4d00cb8fc5e01004eb2e84d13c09a2d9ecab0f",
+        "Fixed-by": "c0ae43d303e45764918fa8c1dc13d6a5db59c479",
+        "subsystem": "gpio",
+        "problem_description": "Using the BIT() macro on 32-bit architectures resulted in undefined behavior for GPIO indices 32 and above due to the 32-bit limit of unsigned long."
+    },
+    {
+        "Commit": "24ebfcd65a871df4555b98c49c9ed9a92f146113",
+        "Fixed-by": "78c268f3781e4b9706103def0cc011505e0c4332",
+        "subsystem": "livepatch",
+        "problem_description": "klp-build module link fails when CONFIG_MODULE_SRCVERSION_ALL is enabled because the source file referenced in the copied .cmd file is not present."
+    },
+    {
+        "Commit": "dd590d4d57ebeeb826823c288741f2ed20f452af",
+        "Fixed-by": "f2dba60339a6299e181671e95293efe312237e2d",
+        "subsystem": "objtool",
+        "problem_description": "klp-diff fails when diffing functions that use WARN() because it cannot properly handle section-based references to bug table entries"
+    },
+    {
+        "Commit": "2c05ca02621837af7cd8fab6ae7421b9cd5dff6e",
+        "Fixed-by": "d107b3265aa5e61a1e326b2815a767526ddb12ac",
+        "subsystem": "objtool",
+        "problem_description": "The ALIGN_UP_POW2 macro causes undefined behavior when the input is 1 due to __builtin_clz(0), leading to an incorrect number of relocations being allocated when adding the first relocation."
+    },
+    {
+        "Commit": "5d859dff266f7e57664dc6bcf80ef2c66547c58a",
+        "Fixed-by": "fd4eeb30b9e30ca1118a618be0755287bcbb2da9",
+        "subsystem": "objtool",
+        "problem_description": "The build fails when cross-compiling on a 32-bit host for a 64-bit target because the '%lx' format specifier is incompatible with the 'unsigned long long' type of 'bfd_vma'."
+    },
+    {
+        "Commit": "1b1f04d8271e7ba70fbbb13754b1e869f70aa785",
+        "Fixed-by": "ba5c657141ea29261e893c46faff29a101f4496a",
+        "subsystem": "bus",
+        "problem_description": "The ls-extirq interrupt controller fails to retrieve its parent IRQ."
+    },
+    {
+        "Commit": "1b1f04d8271e7ba70fbbb13754b1e869f70aa785",
+        "Fixed-by": "05cd654829dd2717e86a5a3f9ff301447fc28c93",
+        "subsystem": "irqchip",
+        "problem_description": "The ls-extirq driver fails to determine its interrupt parent because of_irq_init no longer searches for a parent if the interrupts property is missing."
+    },
+    {
+        "Commit": "9e2ee5c7e7c35d195e2aa0692a7241d47a433d1e",
+        "Fixed-by": "e9acda52fd2ee0cdca332f996da7a95c5fd25294",
+        "subsystem": "bonding",
+        "problem_description": "use-after-free when enslavement fails after the slave has been added to the bonding slave array"
+    },
+    {
+        "Commit": "6e1ff1459e0086312e61c2d1ff8b74395a082fcb",
+        "Fixed-by": "213c4e51267fd825cd21a08a055450cac7e0b7fb",
+        "subsystem": "sound",
+        "problem_description": "The headphone GPIO was incorrectly set to the same value as the speaker enable signal, causing audio to play through both speakers and headphones simultaneously."
+    },
+    {
+        "Commit": "c1c9641a04e839604612eac99c827f8f3e0c4f06",
+        "Fixed-by": "f58442788fdac580c49e0c42379fd32438cff6d7",
+        "subsystem": "pinctrl",
+        "problem_description": "The pin group 'usb32_drvvbus0' was incorrectly renamed to 'usb32_drvvbus' during the conversion of bindings to DT schema, causing a mismatch with the driver."
+    },
+    {
+        "Commit": "6e261d1090d6db0e9dd22978b6f38a2c58558a3f",
+        "Fixed-by": "4f0d22ec60cee420125f4055af76caa0f373a3fe",
+        "subsystem": "pinctrl",
+        "problem_description": "The LPASS LPI driver is missing the .get_direction() callback, which prevents GPIOLIB from correctly determining the current direction of a pin."
+    },
+    {
+        "Commit": "20cf2aed89ac6d78a0122e31c875228e15247194",
+        "Fixed-by": "7ca497be00163610afb663867db24ac408752f13",
+        "subsystem": "gpio",
+        "problem_description": "Marking the controller as sleeping causes warnings when .get and .set are called in atomic context."
+    },
+    {
+        "Commit": "58f5d39d5ed8f2e43f230389ea0d59791afdcd55",
+        "Fixed-by": "7e3debb4c72fe840d60014192cf93950871fb3be",
+        "subsystem": "cpufreq",
+        "problem_description": "Missing sentinel in qcom_cpufreq_ipq806x_match_list of_device_id table causes out-of-bound access during traversal."
+    },
+    {
+        "Commit": "94f418a206648c9be6fd84d6681d6956b8f8b106",
+        "Fixed-by": "165c34fb6068ff153e3fc99a932a80a9d5755709",
+        "subsystem": "nfc",
+        "problem_description": "A race condition between nfc_llcp_send_ui_frame() and local_cleanup() causes a memory leak when an skb is queued to the transmission queue after it has already been purged."
+    },
+    {
+        "Commit": "bfec6d7f2001c7470c3cd261ae65a3ba8737f226",
+        "Fixed-by": "2c84959167d6493dbdac88965c7389b8ab88bf4e",
+        "subsystem": "net",
+        "problem_description": "Reading statistics times out when the link is down because the PHY stops the reference clock."
+    },
+    {
+        "Commit": "141694df6573b49aa4143c92556544b4b0bbda72",
+        "Fixed-by": "e2a9eeb69f7d4ca4cf4c70463af77664fdb6ab1d",
+        "subsystem": "mptcp",
+        "problem_description": "A race condition in mptcp_pm_nl_flush_addrs_doit causes crashes because list_splice_init is used on an RCU-protected list without RCU safety."
+    },
+    {
+        "Commit": "e420114eef4a3a5025a243b89b0dc343101e3d3c",
+        "Fixed-by": "8d7ba71e46216b8657a82ca2ec118bc93812a4d0",
+        "subsystem": "rocker",
+        "problem_description": "Memory leak in rocker_world_port_post_fini() where rocker_port->wpriv is not freed if the port_post_fini callback is NULL."
+    },
+    {
+        "Commit": "3fa805c37dd4d3e72ae5c58800f3f46ab3ca1f70",
+        "Fixed-by": "bd58782995a2e6a07fd07255f3cc319f40b131c9",
+        "subsystem": "vmcoreinfo",
+        "problem_description": "The hwerr_data symbol is lost when the kernel is built with LTO because it is declared as static."
+    },
+    {
+        "Commit": "d245f9b4ab806733a77e51a218ca7b8bc3135cd9",
+        "Fixed-by": "12b2285bf3d14372238d36215b73af02ac3bdfc1",
+        "subsystem": "mm",
+        "problem_description": "Large zone device private folios may contain invalid pgmap fields and flags due to a lack of metadata reinitialization, leading to corrupt folios and kernel crashes."
+    },
+    {
+        "Commit": "3acb913c9d5bd8dcf61677ccba96d349e7681cf8",
+        "Fixed-by": "cbbbf7795fc35a740e1d09f3a55aba543b72a8d3",
+        "subsystem": "mm",
+        "problem_description": "deferred_init_memmap_chunk() incorrectly calls cond_resched() inside a spinlock critical section on PREEMPT_RT kernels where interrupts are not disabled, resulting in a sleeping-in-atomic bug."
+    },
+    {
+        "Commit": "0ce20dd840897b12ae70869c69f1ba34d6d16965",
+        "Fixed-by": "870ff19251bf3910dda7a7245da826924045fedd",
+        "subsystem": "mm",
+        "problem_description": "KFENCE allocation patterns are predictable due to deterministic freelist initialization."
+    },
+    {
+        "Commit": "fc33e4b44b2717feba2f6f07ce7943a96499c9ec",
+        "Fixed-by": "e86436ad0ad2a9aaf88802d69b68f02cbd1f04a9",
+        "subsystem": "kho",
+        "problem_description": "Allocation tags are not initialized when restoring pages from reserved memory, causing accounting mismatches and warnings."
+    },
+    {
+        "Commit": "b3749f174d686627f702234e64bad976dc432dbc",
+        "Fixed-by": "c657c5dc1360fa1ed1b090aedb5883d9cf9f0a0f",
+        "subsystem": "mm",
+        "problem_description": "serialization metadata is not freed if memfd file allocation fails"
+    },
+    {
+        "Commit": "b3749f174d686627f702234e64bad976dc432dbc",
+        "Fixed-by": "02e117b8ca58928f193e5b4df48d6763232f5e91",
+        "subsystem": "mm",
+        "problem_description": "Restored memfds fail writes larger than 2GiB and pread/pwrite operations, and lack proper security label initialization."
+    },
+    {
+        "Commit": "a91befde350375b1ff954635acdde14dc92cd9a8",
+        "Fixed-by": "dd9e2f5b38f1fdd49b1ab6d3a85f81c14369eacc",
+        "subsystem": "flex_proportions",
+        "problem_description": "A deadlock can occur if fprop_new_period is interrupted by a hardirq that attempts to read the same sequence counter."
+    },
+    {
+        "Commit": "18f41fa616ee4d66c67033eb46b951bf6e1b4a12",
+        "Fixed-by": "a148a2040191b12b45b82cb29c281cb3036baf90",
+        "subsystem": "mm",
+        "problem_description": "Per-node memory failure statistics are not updated when a newly poisoned subpage is found in an already poisoned hugetlb folio."
+    },
+    {
+        "Commit": "8b47299a411a178d572aaac31ff7ab33a8bd27e2",
+        "Fixed-by": "a0f3c0845a4ff68d403c568266d17e9cc553e561",
+        "subsystem": "mm",
+        "problem_description": "Marking the swap address space as read-only leads to a kernel panic when arch_prepare_to_swap fails under memory pressure, because the error handling path attempts to write to the read-only address space."
+    },
+    {
+        "Commit": "d699440f58ce9bd71103cc7b692e3ab76a20bfcd",
+        "Fixed-by": "9b47d4eea3f7c1f620e95bda1d6221660bde7d7b",
+        "subsystem": "mm",
+        "problem_description": "vrealloc() triggers a KASAN warning when the requested size is not aligned to KASAN_GRANULE_SIZE."
+    },
+    {
+        "Commit": "809bc86517cc408b5b8cb8e08e69096639432bc8",
+        "Fixed-by": "8a1968bd997f45a9b11aefeabdd1232e1b6c7184",
+        "subsystem": "mm",
+        "problem_description": "A race condition between shmem truncation and swap entry splitting allows shmem_free_swap to use an incorrect swap entry order, causing kernel panics or hangs."
+    },
+    {
+        "Commit": "9d16b482b059d784137881f3ec4bb121c5a2e6ee",
+        "Fixed-by": "39e9c376ac42705af4ed4ae39eec028e8bced9b4",
+        "subsystem": "platform/x86",
+        "problem_description": "The PSS telemetry info parsing incorrectly applies TELEM_INFO_SRAMEVTS_MASK instead of TELEM_INFO_NENABLES_MASK when extracting event register count, causing misdetection of hardware capabilities."
+    },
+    {
+        "Commit": "87bee290998d062937eecf40ad409480e7281b0e",
+        "Fixed-by": "25e9e322d2ab5c03602eff4fbf4f7c40019d8de2",
+        "subsystem": "platform/x86",
+        "problem_description": "The debugfs interface for Intel telemetry incorrectly swaps the LTR blocking statistics and S0ix wakeup event counters when displaying PSS states."
+    },
+    {
+        "Commit": "23d0ba0c908ac10139f0351023c64198d7fc1409",
+        "Fixed-by": "128497456756e1b952bd5a912cd073836465109d",
+        "subsystem": "platform/x86",
+        "problem_description": "Memory leaks occur in the add and remove routines of the toshiba_haps driver because the allocated object is not freed."
+    },
+    {
+        "Commit": "1e12dbae9d726b1e4ada1e5e101ccf6bb7a8c8aa",
+        "Fixed-by": "ca8dcfedac480e424b8860e3d1394afdcdc550fe",
+        "subsystem": "drm/xe",
+        "problem_description": "the MEM_COPY capability was redundantly set in platform descriptors instead of being derived from the graphics version"
+    },
+    {
+        "Commit": "ca33cd271ef9b27acddf96742eef136d0f4caaa5",
+        "Fixed-by": "051be49133971076717846e2a04c746ab3476282",
+        "subsystem": "drm/xe",
+        "problem_description": "Workaround Wa_18022495364 incorrectly writes to the CS_DEBUG_MODE1 register instead of CS_DEBUG_MODE2 due to a typo."
+    },
+    {
+        "Commit": "dd08ebf6c3525a7ea2186e636df064ea47281987",
+        "Fixed-by": "c73a8917b31e8ddbd53cc248e17410cec27f8f58",
+        "subsystem": "drm/xe",
+        "problem_description": "Sync-only parallel executions fail with -EFAULT because the driver attempts to copy batch buffer addresses from userspace even when none are provided."
+    },
+    {
+        "Commit": "53096728b8910c6916ecc6c46a5abc5c678b58d9",
+        "Fixed-by": "12f15d52d38ac53f7c70ea3d4b3d76afed04e064",
+        "subsystem": "drm",
+        "problem_description": "Userspace can trigger a kernel warning in drm_gem_change_handle_ioctl by passing a new handle larger than INT_MAX, because the underlying idr_alloc function operates on signed integers."
+    },
+    {
+        "Commit": "ffe450cb6bce16eb15f6bf90b85b7e5f9bfbc1e3",
+        "Fixed-by": "403a0591be681eebc0c4825f8b42afe7fd13ee7f",
+        "subsystem": "sound",
+        "problem_description": "The name_prefix for the rt1320_2_group2_adr device is incorrectly set to 'rt1320-1' instead of 'rt1320-2'."
+    },
+    {
+        "Commit": "818d78ba1b3f88d2bfee249f25020211488a26c3",
+        "Fixed-by": "ba89709a3610ba27a2eef2e127f3f4fc5b64d5f7",
+        "subsystem": "riscv",
+        "problem_description": "Sparse warnings were introduced due to missing static qualifiers for arch_ext_list and nr_arch_exts, and an incorrect cast removing the __user address space annotation."
+    },
+    {
+        "Commit": "d7659acca7a390b5830f0b67f3aa4a5f9929ab79",
+        "Fixed-by": "e440bc5c190cd0e5f148b2892aeb1f4bbbf54507",
+        "subsystem": "scripts",
+        "problem_description": "rust-analyzer fails to resolve `#[pin_data]` annotated structs due to a missing dependency on the `pin_init` crate"
+    },
+    {
+        "Commit": "cf4fd52e323604ccfa8390917593e1fb965653ee",
+        "Fixed-by": "b0581f6ab952ffd135ca4402d2ee3da641538d6b",
+        "subsystem": "drm/tyr",
+        "problem_description": "The Tyr driver fails to build without `CONFIG_COMMON_CLK` due to unresolved imports of `Clk` and `OptionalClk`."
+    },
+    {
+        "Commit": "84c6d36bcaf98a8c0533cd334a624d536d20879b",
+        "Fixed-by": "bd36f6e2abf7f85644f7ea8deb1de4040b03bbc1",
+        "subsystem": "rust",
+        "problem_description": "Running `rusttest` on a 64-bit host for a 32-bit target causes a panic due to a size mismatch between `isize` and `isize_atomic_repr`."
+    },
+    {
+        "Commit": "186623f4aa724c46cbb4dbd5235cf6942215f5b5",
+        "Fixed-by": "709bbb015538dfd5c97308b77c950d41a4d95cd3",
+        "subsystem": "net",
+        "problem_description": "the MIB counter wraparound detection logic is broken, preventing correct 64-bit statistics accumulation"
+    },
+    {
+        "Commit": "1baf30426553efb3ac518b0e9d5c1c3f8ed7762a",
+        "Fixed-by": "ca12c4a155ebf84e9ef29b05ce979bc89364290f",
+        "subsystem": "net/mlx5",
+        "problem_description": "The function mlx5_esw_vport_vhca_id declared to return bool incorrectly returns a negative integer error code."
+    },
+    {
+        "Commit": "d642b012df70a76dd5723f2d426b40bffe83ac49",
+        "Fixed-by": "f0813bcd2d9d97fdbdf2efb9532ab03ae92e99e6",
+        "subsystem": "net/wwan",
+        "problem_description": "Potential buffer overflow in skb fragments array in t7xx_dpmaif_set_frag_to_skb() due to missing check for MAX_SKB_FRAGS."
+    },
+    {
+        "Commit": "1b70d792cf6775fb5d0737524387893daeb5374a",
+        "Fixed-by": "03cbcdf93866e61beb0063392e6dbb701f03aea2",
+        "subsystem": "ipv6",
+        "problem_description": "ICMPv6 echo replies to localhost addresses incorrectly use the physical device index instead of the loopback interface, causing local pings to fail."
+    },
+    {
+        "Commit": "f4f1ba18195dfb10838b4a221a942a2a7d218ca9",
+        "Fixed-by": "09f979d1f312627b31d2ee1e46f9692e442610cd",
+        "subsystem": "net",
+        "problem_description": "memory allocated for ethtool_rule is not freed if the flow type conversion fails in mvpp2_ethtool_cls_rule_ins"
+    }
+]
