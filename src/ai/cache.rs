@@ -301,7 +301,7 @@ mod tests {
         let context_str = format!(
             "{}\n\n# review-code.md\n\n# Subsystem Guidelines\n\n\n\n{}",
             crate::worker::prompts::SYSTEM_IDENTITY,
-            crate::worker::prompts::TASK_INSTRUCTION
+            crate::worker::prompts::OUTPUT_FORMAT_INSTRUCTION
         );
         let mut hasher = Sha256::new();
         hasher.update(&context_str);
@@ -400,7 +400,7 @@ mod tests {
         let context_str = format!(
             "{}\n\n# review-code.md\n\n# Subsystem Guidelines\n\n\n\n{}",
             crate::worker::prompts::SYSTEM_IDENTITY,
-            crate::worker::prompts::TASK_INSTRUCTION
+            crate::worker::prompts::OUTPUT_FORMAT_INSTRUCTION
         );
         let mut hasher = Sha256::new();
         hasher.update(&context_str);

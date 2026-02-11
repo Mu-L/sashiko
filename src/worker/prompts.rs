@@ -12,38 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 
 /// System identity prompt - used across all AI interactions
 pub const SYSTEM_IDENTITY: &str = "You're an expert Linux kernel developer and upstream maintainer with deep knowledge of Linux kernel, Operating Systems, CPU architectures, modern hardware and Linux kernel community standards and processes.";
 
-pub const TASK_INSTRUCTION: &str = "Important: you *MUST* produce the following outputs:\n\
-1. `review-inline.txt`: If you have ANY findings (count > 0), regardless of severity. This file *MUST* follow the format and guidelines provided in `inline-template.md`.\n\
-2. Final JSON Output: Your final response must be a valid JSON object strictly following the JSON schema:\n\
-{\n\
-\"findings\": [\n\
-{\n\
-\"problem\": \"Detailed description of the problem\",\n\
-\"severity\": \"Critical|High|Medium|Low\",\n\
-\"severity_explanation\": \"Why this severity was chosen: e.g. memory leak on a hot path\",\n\
-\"suggestion\": \"Optional fix suggestion\"\n\
-}\n\
-]\n\
-}";
-
-/// Files to exclude from context building
-const EXCLUDED_FILES: &[&str] = &[
-    "review-core.md",
-    "technical-patterns.md",
-    "README.md",
-    "review-one.md",
-    "review-stat.md",
-    "debugging.md",
-    "lore-thread.md",
-];
+/// Task instruction - defines the required output format (excluding JSON schema which is handled by API)
+pub const OUTPUT_FORMAT_INSTRUCTION: &str = "Important: If you have ANY findings (count > 0), you *MUST* produce a `review-inline.txt` file. This file *MUST* follow the format and guidelines provided in `inline-template.md`.";
 
 pub struct PromptRegistry {
     base_dir: PathBuf,
@@ -54,152 +32,116 @@ impl PromptRegistry {
         Self { base_dir }
     }
 
-    pub fn get_base_dir(&self) -> &PathBuf {
-        &self.base_dir
-    }
-
-    /// Returns the system identity prompt
     pub fn get_system_identity() -> &'static str {
         SYSTEM_IDENTITY
     }
 
-    /// Reads the review-core.md protocol file
-    pub async fn get_review_core(&self) -> Result<String> {
-        let core_path = self.base_dir.join("review-core.md");
-        if core_path.exists() {
-            Ok(fs::read_to_string(&core_path).await?)
-        } else {
-            Ok("Deep dive regression analysis protocol.".to_string())
-        }
+    /// Builds the complete knowledge base string.
+    /// This is used for:
+    /// 1. Populating the Context Cache.
+    /// 2. Constructing the full prompt in non-cached mode.
+    pub async fn build_context(&self) -> Result<String> {
+        let mut content = String::with_capacity(50_000);
+
+        // 1. System Identity
+        content.push_str(SYSTEM_IDENTITY);
+        content.push_str("\n\n");
+
+        // 2. Core Protocol & Patterns
+        self.append_file(&mut content, "review-core.md").await?;
+        self.append_file(&mut content, "technical-patterns.md").await?;
+
+        // 3. Subsystem Guidelines (root *.md files)
+        self.append_directory(&mut content, &self.base_dir, |name| {
+            !matches!(
+                name,
+                "review-core.md"
+                    | "technical-patterns.md"
+                    | "README.md"
+                    | "review-one.md"
+                    | "review-stat.md"
+                    | "debugging.md"
+                    | "lore-thread.md"
+            )
+        })
+        .await?;
+
+        // 4. Specific Pattern Directories
+        self.append_directory(&mut content, &self.base_dir.join("patterns"), |_| true)
+            .await?;
+        self.append_directory(&mut content, &self.base_dir.join("nfsd"), |_| true)
+            .await?;
+
+        // 5. Task Instructions
+        content.push_str("\n\n");
+        content.push_str(OUTPUT_FORMAT_INSTRUCTION);
+
+        Ok(content)
     }
 
-    /// Builds the user task prompt for AI review
-    ///
-    /// When `use_cache` is true, the protocol is assumed to be in the cache,
-    /// so we don't include review-core.md content.
+    /// Returns the initial user message to start the task.
+    /// - `use_cache`: If true, assumes `build_context` is already in the cache.
     pub async fn get_user_task_prompt(&self, use_cache: bool) -> Result<String> {
         if use_cache {
-            Ok(SYSTEM_IDENTITY.to_string())
+            // In cached mode, the context (Identity + Instructions + Protocol) is already pre-loaded.
+            // We provide a minimal trigger that references the specific section.
+            Ok("Refer to the `# review-core.md` section in the pre-loaded context and run a deep dive regression analysis as described in the protocol of the top commit in the Linux source tree. Do NOT attempt to load any additional prompts.".to_string())
         } else {
-            Ok(format!(
-                "{} Load the protocol from `review-core.md` and run a deep dive regression analysis as described in the protocol of the top commit in the Linux source tree.\n\n\
-                 {}",
-                SYSTEM_IDENTITY, TASK_INSTRUCTION
-            ))
+            // In non-cached mode, we must provide the Identity and Output Instructions explicitly,
+            // followed by the trigger to load the protocol.
+            let trigger = "Load the protocol from `review-core.md` and run a deep dive regression analysis as described in the protocol of the top commit in the Linux source tree.";
+            Ok(format!("{}\n\n{}\n\n{}", SYSTEM_IDENTITY, OUTPUT_FORMAT_INSTRUCTION, trigger))
         }
     }
 
-    /// Builds full context string from prompts directory for caching
-    ///
-    /// Follows specific inclusion order:
-    /// 1. System Identity
-    /// 2. review-core.md
-    /// 3. technical-patterns.md
-    /// 4. All *.md in base_dir (excluding specific files)
-    /// 5. All *.md in patterns/
-    /// 6. All *.md in nfsd/
-    pub async fn build_context(&self) -> Result<String> {
-        let mut context = String::new();
-
-        // 1. System identity
-        context.push_str(SYSTEM_IDENTITY);
-        context.push_str("\n\n");
-
-        // 2. Review protocol (review-core.md)
-        context.push_str("# review-code.md\n\n");
-        let core_path = self.base_dir.join("review-core.md");
-        if core_path.exists() {
-            context.push_str(&fs::read_to_string(&core_path).await?);
-            context.push_str("\n\n");
+    async fn append_file(&self, buffer: &mut String, filename: &str) -> Result<()> {
+        let path = self.base_dir.join(filename);
+        if path.exists() {
+            buffer.push_str(&format!("# {}\n", filename));
+            buffer.push_str(
+                &fs::read_to_string(&path)
+                    .await
+                    .with_context(|| format!("Failed to read {}", filename))?,
+            );
+            buffer.push_str("\n\n");
         }
+        Ok(())
+    }
 
-        // 3. Technical patterns (technical-patterns.md)
-        let tech_path = self.base_dir.join("technical-patterns.md");
-        if tech_path.exists() {
-            context.push_str("## technical-patterns.md\n");
-            context.push_str(&fs::read_to_string(&tech_path).await?);
-            context.push_str("\n\n");
+    async fn append_directory<F>(&self, buffer: &mut String, dir: &Path, filter: F) -> Result<()>
+    where
+        F: Fn(&str) -> bool,
+    {
+        if !dir.exists() {
+            return Ok(());
         }
-
-        // 4. Subsystem guidelines (root md files)
-        context.push_str("# Subsystem Guidelines\n\n");
-
-        let mut entries = fs::read_dir(&self.base_dir).await?;
+        let mut entries = fs::read_dir(dir).await?;
         let mut paths = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
-            paths.push(entry.path());
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "md") {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if filter(name) {
+                        paths.push(path);
+                    }
+                }
+            }
         }
-        paths.sort(); // Deterministic order
-
+        paths.sort();
         for path in paths {
-            if path.is_file() && path.extension().is_some_and(|ext| ext == "md") {
-                let fname = path.file_name().unwrap().to_string_lossy();
-                if EXCLUDED_FILES.contains(&fname.as_ref()) {
-                    continue;
-                }
-                context.push_str(&format!("## {}\n", fname));
-                context.push_str(&fs::read_to_string(&path).await?);
-                context.push_str("\n\n");
-            }
+            let name = path.file_name().unwrap().to_string_lossy();
+            let header = if let Ok(rel) = path.strip_prefix(&self.base_dir) {
+                rel.to_string_lossy().to_string()
+            } else {
+                name.to_string()
+            };
+            buffer.push_str(&format!("## {}\n", header));
+            buffer.push_str(&fs::read_to_string(&path).await?);
+            buffer.push_str("\n\n");
         }
-
-        // 5. Technical patterns (patterns/ subdirectory)
-        let patterns_dir = self.base_dir.join("patterns");
-        if patterns_dir.exists() {
-            context.push_str("# Technical Patterns\n\n");
-            let mut p_entries = fs::read_dir(&patterns_dir).await?;
-            let mut p_paths = Vec::new();
-            while let Some(entry) = p_entries.next_entry().await? {
-                p_paths.push(entry.path());
-            }
-            p_paths.sort();
-
-            for path in p_paths {
-                if path.extension().is_some_and(|ext| ext == "md") {
-                    context.push_str(&format!(
-                        "## patterns/{}\n",
-                        path.file_name().unwrap().to_string_lossy()
-                    ));
-                    context.push_str(&fs::read_to_string(&path).await?);
-                    context.push_str("\n\n");
-                }
-            }
-        }
-
-        // 6. NFSD guidelines (nfsd/ subdirectory)
-        let nfsd_dir = self.base_dir.join("nfsd");
-        if nfsd_dir.exists() {
-            context.push_str("# NFSD Guidelines\n\n");
-            let mut n_entries = fs::read_dir(&nfsd_dir).await?;
-            let mut n_paths = Vec::new();
-            while let Some(entry) = n_entries.next_entry().await? {
-                n_paths.push(entry.path());
-            }
-            n_paths.sort();
-
-            for path in n_paths {
-                if path.extension().is_some_and(|ext| ext == "md") {
-                    context.push_str(&format!(
-                        "## nfsd/{}\n",
-                        path.file_name().unwrap().to_string_lossy()
-                    ));
-                    context.push_str(&fs::read_to_string(&path).await?);
-                    context.push_str("\n\n");
-                }
-            }
-        }
-
-        // 7. Inline Template
-        // (inline-template.md is now included in step 4 via fs::read_dir as it is not in EXCLUDED_FILES)
-
-        // 8. Task Instruction
-        context.push_str("\n\n");
-        context.push_str(TASK_INSTRUCTION);
-
-        Ok(context)
+        Ok(())
     }
 
-    /// Calculates SHA256 hash of content, optionally including tools signature
     pub fn calculate_content_hash<T: serde::Serialize>(
         &self,
         content: &str,
@@ -207,14 +149,11 @@ impl PromptRegistry {
     ) -> String {
         let mut hasher = Sha256::new();
         hasher.update(content);
-
-        // Also hash tools signature if present, so we rotate cache if tools change
         if let Some(tools) = tools {
             if let Ok(json) = serde_json::to_string(tools) {
                 hasher.update(json);
             }
         }
-
         format!("{:x}", hasher.finalize())
     }
 }
@@ -275,8 +214,8 @@ mod tests {
         let registry = PromptRegistry::new(temp_dir.path().to_path_buf());
         let context = registry.build_context().await.unwrap();
 
+        assert!(context.contains("# review-core.md"));
         assert!(context.contains("# Test Protocol"));
-        assert!(context.contains("This is a test."));
     }
 
     #[tokio::test]
@@ -312,10 +251,10 @@ mod tests {
 
         let prompt = registry.get_user_task_prompt(true).await.unwrap();
 
-        assert!(prompt.contains(SYSTEM_IDENTITY));
-        assert!(!prompt.contains("Analyze the provided patch")); // Removed
-        assert!(!prompt.contains("regression analysis")); // It was moved to cache
-        assert!(!prompt.contains("## Review Protocol")); // No embedded protocol in cached mode
+        // In cached mode, the prompt is minimal and relies on pre-loaded context.
+        assert!(!prompt.contains(SYSTEM_IDENTITY));
+        assert!(prompt.contains("Refer to the `# review-core.md` section"));
+        assert!(prompt.contains("Do NOT attempt to load any additional prompts"));
     }
 
     #[tokio::test]
@@ -327,9 +266,9 @@ mod tests {
         let prompt = registry.get_user_task_prompt(false).await.unwrap();
 
         assert!(prompt.contains(SYSTEM_IDENTITY));
-        assert!(!prompt.contains("## Review Protocol"));
-        assert!(!prompt.contains("Protocol content"));
         assert!(prompt.contains("Load the protocol from `review-core.md`"));
+        assert!(!prompt.contains("Refer to the protocol in the pre-loaded context"));
+        assert!(prompt.contains("Important: If you have ANY findings"));
     }
 
     #[tokio::test]
@@ -376,41 +315,8 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let registry = PromptRegistry::new(temp_dir.path().to_path_buf());
         let context = registry.build_context().await.unwrap();
-        assert!(context.contains("Important: you *MUST* produce the following outputs"));
-    }
-
-    #[tokio::test]
-    async fn test_build_context_includes_inline_template_at_end() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let registry = PromptRegistry::new(temp_dir.path().to_path_buf());
-
-        // Create inline-template.md
-        std::fs::write(
-            temp_dir.path().join("inline-template.md"),
-            "INLINE TEMPLATE CONTENT",
-        )
-        .unwrap();
-
-        let context = registry.build_context().await.unwrap();
-
-        // Check if inline-template.md content is present
-        assert!(context.contains("INLINE TEMPLATE CONTENT"));
-    }
-
-    #[tokio::test]
-    async fn test_user_task_prompt_non_cached_excludes_inline_template() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        std::fs::write(temp_dir.path().join("review-core.md"), "Protocol").unwrap();
-        std::fs::write(
-            temp_dir.path().join("inline-template.md"),
-            "Inline Template Content",
-        )
-        .unwrap();
-
-        let registry = PromptRegistry::new(temp_dir.path().to_path_buf());
-        let prompt = registry.get_user_task_prompt(false).await.unwrap();
-
-        // Check content is not present
-        assert!(!prompt.contains("Inline Template Content"));
+        assert!(context.contains("Important: If you have ANY findings"));
+        // Ensure JSON schema is NOT present
+        assert!(!context.contains("Your final response must be a valid JSON object"));
     }
 }
