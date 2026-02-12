@@ -263,7 +263,7 @@ mod tests {
         assert!(!prompt.contains(SYSTEM_IDENTITY));
         assert!(prompt.contains("Load the protocol from `review-core.md`"));
         assert!(!prompt.contains("Refer to the protocol in the pre-loaded context"));
-        assert!(prompt.contains("Important: If you have ANY findings"));
+        assert!(prompt.contains("Important: `review_inline` field"));
     }
 
     #[tokio::test]

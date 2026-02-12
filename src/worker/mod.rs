@@ -54,6 +54,20 @@ pub struct WorkerResult {
     pub tokens_cached: u32,
 }
 
+fn validate_inline_format(content: &str) -> Result<(), String> {
+    // Check for markdown headers (lines starting with '#')
+    if content.lines().any(|l| l.trim_start().starts_with("#")) {
+        return Err("The `review_inline` field contains Markdown headers (lines starting with '#'). It must be plain text as per `inline-template.md`.".to_string());
+    }
+
+    // Check for quoting (lines starting with '>')
+    if !content.lines().any(|l| l.trim_start().starts_with(">")) {
+        return Err("The `review_inline` field does not appear to quote any code or context using '>'. Please follow the quoting style in `inline-template.md`.".to_string());
+    }
+
+    Ok(())
+}
+
 impl Worker {
     pub fn new(
         client: Box<dyn GenAiClient>,
@@ -145,6 +159,10 @@ impl Worker {
         }
 
         (before_pruning, self.history.clone())
+    }
+
+    fn validate_review_inline(&self, content: &str) -> Result<(), String> {
+        validate_inline_format(content)
     }
 
     pub async fn run(&mut self, patchset: Value) -> Result<WorkerResult> {
@@ -500,6 +518,53 @@ impl Worker {
                     }
                 };
 
+                // Validate review_inline format if findings are present
+                let findings_count = json_val
+                    .get("findings")
+                    .and_then(|v| v.as_array())
+                    .map(|v| v.len())
+                    .unwrap_or(0);
+
+                if findings_count > 0 {
+                    let review_inline = json_val.get("review_inline").and_then(|v| v.as_str());
+
+                    if review_inline.is_none() || review_inline.unwrap().trim().is_empty() {
+                        let error_msg = "Validation Error: 'findings' were detected but 'review_inline' is missing or empty. You must provide the inline review in 'review_inline' when reporting findings. Please retry.".to_string();
+                        warn!("{}", error_msg);
+
+                        let error_content = Content {
+                            role: "user".to_string(),
+                            parts: vec![Part::Text {
+                                text: error_msg,
+                                thought_signature: None,
+                                thought: false,
+                            }],
+                        };
+                        self.history_tokens
+                            .push(self.estimate_content_tokens(&error_content));
+                        self.history.push(error_content);
+                        continue;
+                    }
+
+                    if let Err(e) = self.validate_review_inline(review_inline.unwrap()) {
+                        let error_msg = format!("Validation Error: {}. Please retry and strictly follow `inline-template.md`.", e);
+                        warn!("{}", error_msg);
+
+                        let error_content = Content {
+                            role: "user".to_string(),
+                            parts: vec![Part::Text {
+                                text: error_msg,
+                                thought_signature: None,
+                                thought: false,
+                            }],
+                        };
+                        self.history_tokens
+                            .push(self.estimate_content_tokens(&error_content));
+                        self.history.push(error_content);
+                        continue;
+                    }
+                }
+
                 return Ok(WorkerResult {
                     output: Some(json_val),
                     error: None,
@@ -513,5 +578,34 @@ impl Worker {
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_inline_format_valid() {
+        let content = "Commit 123\n\n> diff --git a/file b/file\n> index 123..456\n\nThis looks bad.";
+        assert!(validate_inline_format(content).is_ok());
+    }
+
+    #[test]
+    fn test_validate_inline_format_markdown_headers() {
+        let content = "# Summary\n\n> diff --git ...";
+        assert!(validate_inline_format(content).is_err());
+    }
+
+    #[test]
+    fn test_validate_inline_format_no_quoting() {
+        let content = "This looks bad.\nNo diff here.";
+        assert!(validate_inline_format(content).is_err());
+    }
+
+    #[test]
+    fn test_validate_inline_format_headers_in_diff_ok() {
+         let content = "> #include <stdio.h>\n> void main() {}";
+         assert!(validate_inline_format(content).is_ok());
     }
 }
