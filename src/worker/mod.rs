@@ -37,6 +37,7 @@ pub struct Worker {
     max_interactions: usize,
     temperature: f32,
     cache_name: Option<String>,
+    custom_prompt: Option<String>,
 }
 
 pub struct WorkerResult {
@@ -65,25 +66,31 @@ fn validate_inline_format(content: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub struct WorkerConfig {
+    pub max_input_tokens: usize,
+    pub max_interactions: usize,
+    pub temperature: f32,
+    pub cache_name: Option<String>,
+    pub custom_prompt: Option<String>,
+}
+
 impl Worker {
     pub fn new(
         provider: Arc<dyn AiProvider>,
         tools: ToolBox,
         prompts: PromptRegistry,
-        max_input_tokens: usize,
-        max_interactions: usize,
-        temperature: f32,
-        cache_name: Option<String>,
+        config: WorkerConfig,
     ) -> Self {
         Self {
             provider,
             tools,
             prompts,
             history: Vec::new(),
-            max_input_tokens,
-            max_interactions,
-            temperature,
-            cache_name,
+            max_input_tokens: config.max_input_tokens,
+            max_interactions: config.max_interactions,
+            temperature: config.temperature,
+            cache_name: config.cache_name,
+            custom_prompt: config.custom_prompt,
         }
     }
 
@@ -178,10 +185,15 @@ impl Worker {
             }
         }
 
-        let input_context = format!(
-            "System: {}\n\nUser: {}",
-            system_prompt, initial_user_message
-        );
+        let mut full_user_message = initial_user_message;
+        if let Some(custom) = &self.custom_prompt {
+            full_user_message.push_str("\n\n");
+            full_user_message.push_str(custom);
+        }
+        full_user_message.push_str("\n\n");
+        full_user_message.push_str(&patch_content);
+
+        let input_context = format!("System: {}\n\nUser: {}", system_prompt, full_user_message);
 
         let system_message = AiMessage {
             role: AiRole::System,
@@ -192,7 +204,7 @@ impl Worker {
 
         let initial_message = AiMessage {
             role: AiRole::User,
-            content: Some(initial_user_message),
+            content: Some(full_user_message),
             tool_calls: None,
             tool_call_id: None,
         };

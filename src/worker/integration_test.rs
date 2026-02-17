@@ -17,7 +17,7 @@ mod tests {
     use crate::ai::{
         AiProvider, AiRequest, AiResponse, AiRole, AiUsage, ProviderCapabilities, ToolCall,
     };
-    use crate::worker::{Worker, prompts::PromptRegistry, tools::ToolBox};
+    use crate::worker::{Worker, WorkerConfig, prompts::PromptRegistry, tools::ToolBox};
     use async_trait::async_trait;
     use serde_json::json;
     use std::collections::VecDeque;
@@ -128,7 +128,13 @@ mod tests {
 
         let tools = ToolBox::new(linux_path, None);
         let prompts = PromptRegistry::new(prompts_path);
-        let mut worker = Worker::new(client, tools, prompts, 150_000, 25, 1.0, None);
+        let mut worker = Worker::new(client, tools, prompts, WorkerConfig {
+            max_input_tokens: 150_000,
+            max_interactions: 25,
+            temperature: 1.0,
+            cache_name: None,
+            custom_prompt: None,
+        });
 
         let patchset = json!({
             "subject": "Test Patch",
@@ -158,7 +164,13 @@ mod tests {
 
         let tools = ToolBox::new(linux_path, None);
         let prompts = PromptRegistry::new(prompts_path);
-        let mut worker = Worker::new(client, tools, prompts, 150_000, 25, 1.0, None);
+        let mut worker = Worker::new(client, tools, prompts, WorkerConfig {
+            max_input_tokens: 150_000,
+            max_interactions: 25,
+            temperature: 1.0,
+            cache_name: None,
+            custom_prompt: None,
+        });
 
         let patchset = json!({
             "subject": "Docs update",
@@ -221,7 +233,13 @@ mod tests {
 
         let tools = ToolBox::new(linux_path, None);
         let prompts = PromptRegistry::new(prompts_path);
-        let mut worker = Worker::new(client, tools, prompts, 150_000, 25, 1.0, None);
+        let mut worker = Worker::new(client, tools, prompts, WorkerConfig {
+            max_input_tokens: 150_000,
+            max_interactions: 25,
+            temperature: 1.0,
+            cache_name: None,
+            custom_prompt: None,
+        });
 
         let patchset = json!({
             "subject": "Loop Test",
@@ -262,7 +280,13 @@ mod tests {
 
         let tools = ToolBox::new(linux_path, None);
         let prompts = PromptRegistry::new(prompts_path);
-        let mut worker = Worker::new(client, tools, prompts, 150_000, 25, 1.0, None);
+        let mut worker = Worker::new(client, tools, prompts, WorkerConfig {
+            max_input_tokens: 150_000,
+            max_interactions: 25,
+            temperature: 1.0,
+            cache_name: None,
+            custom_prompt: None,
+        });
 
         let patchset = json!({
             "subject": "Extraction Test",
@@ -273,5 +297,67 @@ mod tests {
         let result = worker.run(patchset).await.expect("Worker run failed");
         let review = result.output.expect("No output extracted");
         assert_eq!(review["summary"], "Extracted");
+    }
+
+    #[tokio::test]
+    async fn test_worker_custom_prompt() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let (linux_path, prompts_path) = get_test_paths();
+
+        let mock_response = json!({
+            "summary": "Mock summary",
+            "findings": []
+        });
+
+        let client = Arc::new(StatefulMockClient::new(vec![create_text_response(
+            &format!("```json\n{}\n```", mock_response),
+        )]));
+
+        let tools = ToolBox::new(linux_path, None);
+        let prompts = PromptRegistry::new(prompts_path);
+
+        let custom_prompt = "IMPORTANT: Focus on security vulnerabilities.";
+        let mut worker = Worker::new(
+            client,
+            tools,
+            prompts,
+            WorkerConfig {
+                max_input_tokens: 150_000,
+                max_interactions: 25,
+                temperature: 1.0,
+                cache_name: None,
+                custom_prompt: Some(custom_prompt.to_string()),
+            },
+        );
+
+        let patchset = json!({
+            "subject": "Test Patch",
+            "author": "Test",
+            "patches": [
+                {
+                    "subject": "Test Patch",
+                    "author": "Test",
+                    "git_show": "diff --git a/file b/file\nindex 0000000..1111111 100644\n--- a/file\n+++ b/file\n@@ -0,0 +1 @@\n+test"
+                }
+            ]
+        });
+
+        let result = worker.run(patchset).await.expect("Worker run failed");
+
+        // Verify history contains the custom prompt
+        // history[0] is the user prompt
+        let initial_message = &result.history[0];
+        if let crate::ai::Part::Text { text, .. } = &initial_message.parts[0] {
+            assert!(
+                text.contains(custom_prompt),
+                "User prompt should contain custom prompt"
+            );
+            assert!(
+                text.contains("diff --git"),
+                "User prompt should contain patch content"
+            );
+        } else {
+            panic!("Expected text part in history[0]");
+        }
     }
 }

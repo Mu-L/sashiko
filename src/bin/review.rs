@@ -17,7 +17,7 @@ use clap::Parser;
 use sashiko::{
     git_ops::GitWorktree,
     settings::Settings,
-    worker::{Worker, prompts::PromptRegistry, tools::ToolBox},
+    worker::{Worker, WorkerConfig, prompts::PromptRegistry, tools::ToolBox},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -69,6 +69,10 @@ struct Args {
     /// AI provider to use. Overrides settings.
     #[arg(long)]
     ai_provider: Option<String>,
+
+    /// Custom prompt string to append to the user task prompt.
+    #[arg(long)]
+    custom_prompt: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -378,10 +382,13 @@ async fn main() -> Result<()> {
                             provider,
                             tools,
                             prompts,
-                            settings.ai.max_input_tokens,
-                            settings.ai.max_interactions,
-                            settings.ai.temperature,
-                            args.gemini_cache.clone(),
+                            WorkerConfig {
+                                max_input_tokens: settings.ai.max_input_tokens,
+                                max_interactions: settings.ai.max_interactions,
+                                temperature: settings.ai.temperature,
+                                cache_name: args.gemini_cache.clone(),
+                                custom_prompt: args.custom_prompt.clone(),
+                            },
                         );
 
                         match worker.run(patchset_val.clone()).await {
