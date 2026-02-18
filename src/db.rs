@@ -16,7 +16,7 @@ use crate::ReviewStatus;
 use crate::settings::DatabaseSettings;
 use anyhow::Result;
 use libsql::Builder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::info;
 
@@ -24,14 +24,14 @@ pub struct Database {
     pub conn: libsql::Connection,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Subsystem {
     pub id: i64,
     pub name: String,
     pub mailing_list_address: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PatchsetRow {
     pub id: i64,
     pub subject: Option<String>,
@@ -56,7 +56,7 @@ pub struct PatchsetRow {
     pub provider: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MessageRow {
     pub id: i64,
     pub message_id: String,
@@ -86,7 +86,7 @@ pub struct AiInteractionParams<'a> {
     pub tokens_cached: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ToolUsage {
     pub review_id: i64,
     pub provider: String,

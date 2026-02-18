@@ -45,7 +45,7 @@ pub struct Pagination {
     pub mailing_list: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct PatchsetsResponse {
     pub items: Vec<crate::db::PatchsetRow>,
     pub total: usize,
@@ -53,7 +53,7 @@ pub struct PatchsetsResponse {
     pub per_page: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct MessagesResponse {
     pub items: Vec<crate::db::MessageRow>,
     pub total: usize,
@@ -84,7 +84,7 @@ pub struct InjectRequest {
     pub baseline: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum SubmitRequest {
     Inject {
@@ -102,7 +102,7 @@ pub enum SubmitRequest {
     },
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SubmitResponse {
     pub status: String,
     pub id: String,

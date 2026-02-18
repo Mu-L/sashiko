@@ -8,7 +8,8 @@ default-run = "sashiko"
 anyhow = "1.0.100"
 async-trait = "0.1.89"
 axum = "0.8.8"
-clap = { version = "4.5.54", features = ["derive"] }
+chrono = "0.4.43"
+clap = { version = "4.5.54", features = ["derive", "env"] }
 config = "0.15.19"
 fastrand = "2.3.0"
 futures = "0.3.31"
