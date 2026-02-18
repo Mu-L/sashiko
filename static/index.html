@@ -1451,7 +1451,10 @@
 
             if (!reviewsHtml) reviewsHtml = '<p>No AI reviews yet.</p>';
 
-            const threadHtml = renderThreadTree(data.thread);
+            // Only show baseline/thread section if NOT a direct git submission (heuristic: message_id is SHA)
+            const isGitSubmission = data.message_id && /^[0-9a-f]{40}$/.test(data.message_id);
+
+            const threadHtml = isGitSubmission ? '' : renderThreadTree(data.thread);
             const subsystemsHtml = data.subsystems?.length > 0
                 ? data.subsystems.map(s => `<span class="tag">${escapeHtml(s)}</span>`).join('')
                 : '-';
@@ -1479,8 +1482,6 @@
             }
 
             let baselineLogsHtml = '';
-            // Only show baseline section if NOT a direct git submission (heuristic: message_id is SHA)
-            const isGitSubmission = data.message_id && /^[0-9a-f]{40}$/.test(data.message_id);
             
             if (data.baseline_logs && !isGitSubmission) {
                  const logId = 'baseline-logs-' + Math.random().toString(36).substr(2, 9);
@@ -1572,10 +1573,10 @@
                     <div class="kv"><div class="label">Prompts:</div><div>${escapeHtml(promptsHash)}</div></div>
                 </div>
                 
-                <div class="section">
+                ${threadHtml ? `<div class="section">
                     <h2>Thread</h2>
                     ${threadHtml}
-                </div>
+                </div>` : ''}
 
                 ${baselineLogsHtml}
                 
@@ -1784,7 +1785,10 @@
 
             document.title = `Sashiko - ${data.subject}`;
             const date = formatDate(data.date, true);
-            const threadHtml = data.thread?.length > 0 ? renderThreadTreeWithCurrent(data.thread, data.message_id) : '';
+            
+            // Heuristic: message_id is SHA means it's a direct git submission
+            const isGitSubmission = data.message_id && /^[0-9a-f]{40}$/.test(data.message_id);
+            const threadHtml = (!isGitSubmission && data.thread?.length > 0) ? renderThreadTreeWithCurrent(data.thread, data.message_id) : '';
 
             document.getElementById('app').innerHTML = `
                 <div class="nav"><a href="#/" onclick="event.preventDefault(); goBack();">← Back</a></div>
