@@ -26,7 +26,7 @@ use anyhow::Result;
 use regex::Regex;
 use serde_json::{Value, json};
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 pub struct Worker {
     provider: Arc<dyn AiProvider>,
@@ -544,7 +544,7 @@ impl Worker {
                             "Validation Error: {}. Please retry and strictly follow `inline-template.md`.",
                             e
                         );
-                        warn!("{}", error_msg);
+                        info!("{}", error_msg);
 
                         self.history.push(AiMessage {
                             role: AiRole::User,
