@@ -1980,7 +1980,7 @@ ${escapeHtml(data.body || '(no body)', true, false)}</pre>
                         return `"${args.path}", ${formatSize(contentLen)} content`;
                     }
                     case 'search_file_content': {
-                        let s = `/${args.pattern}/`;
+                        let s = `"${args.pattern}"`;
                         if (args.path && args.path !== '.') s += ` in "${args.path}"`;
                         if (args.context_lines) s += ` ±${args.context_lines}`;
                         return s;
