@@ -218,6 +218,7 @@ pub trait GenAiClient: Send + Sync {
 #[derive(Debug)]
 pub enum GeminiError {
     QuotaExceeded(Duration),
+    TransientError(Duration, String),
     PermissionDenied(String),
     ApiError(reqwest::StatusCode, String),
     Other(String),
@@ -227,6 +228,7 @@ impl std::fmt::Display for GeminiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GeminiError::QuotaExceeded(d) => write!(f, "Quota exceeded, retry in {:?}", d),
+            GeminiError::TransientError(d, msg) => write!(f, "Transient error: {}, retry in {:?}", msg, d),
             GeminiError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
             GeminiError::ApiError(s, msg) => write!(f, "Gemini API error ({}): {}", s, msg),
             GeminiError::Other(msg) => write!(f, "{}", msg),
@@ -304,15 +306,14 @@ impl GeminiClient {
         body: &T,
     ) -> Result<GenerateContentResponse> {
         let re = Regex::new(r"Please retry in ([0-9.]+)s").unwrap();
-        let res = self.client.post(url).json(body).send().await;
-
-        if let Err(e) = &res {
-            tracing::error!(
-                "Gemini request failed (transport): {}",
-                redact_secret(&e.to_string())
-            );
-        }
-        let res = res?;
+        let res = match self.client.post(url).json(body).send().await {
+            Ok(res) => res,
+            Err(e) => {
+                let err_str = redact_secret(&e.to_string());
+                tracing::error!("Gemini request failed (transport): {}", err_str);
+                return Err(GeminiError::TransientError(Duration::from_secs(30), err_str).into());
+            }
+        };
 
         if res.status().is_success() {
             let body_text = res.text().await?;
@@ -370,6 +371,12 @@ impl GeminiClient {
             return Err(GeminiError::PermissionDenied(error_text).into());
         }
 
+        let is_transient = status.is_server_error() || status.as_u16() == 499;
+        if is_transient {
+            tracing::warn!("Gemini API Transient Error: status={}, body={}", status, error_text);
+            return Err(GeminiError::TransientError(Duration::from_secs(30), error_text).into());
+        }
+
         tracing::error!("Gemini API Error: status={}, body={}", status, error_text);
         Err(GeminiError::ApiError(status, error_text).into())
     }
@@ -381,18 +388,29 @@ impl GenAiClient for GeminiClient {
         &self,
         request: GenerateContentRequest,
     ) -> Result<GenerateContentResponse> {
+        let mut retry_count = 0;
+        let max_retries = 10;
         loop {
             match self.generate_content_single(&request).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
-                    if let Some(GeminiError::QuotaExceeded(sleep_duration)) =
-                        e.downcast_ref::<GeminiError>()
-                    {
-                        tracing::warn!(
-                            "Gemini API quota exceeded. Retrying in {:.2}s...",
-                            sleep_duration.as_secs_f64()
-                        );
-                        sleep(*sleep_duration).await;
+                    let mut sleep_duration = None;
+                    if let Some(GeminiError::QuotaExceeded(d)) = e.downcast_ref::<GeminiError>() {
+                        sleep_duration = Some(*d);
+                        tracing::warn!("Gemini API quota exceeded. Retrying in {:.2}s...", d.as_secs_f64());
+                    } else if let Some(GeminiError::TransientError(d, _msg)) = e.downcast_ref::<GeminiError>() {
+                        let backoff = (d.as_secs_f64() * (1.5_f64.powi(retry_count))).min(300.0);
+                        sleep_duration = Some(Duration::from_secs_f64(backoff));
+                        tracing::warn!("Gemini API transient error. Retrying in {:.2}s...", backoff);
+                    }
+
+                    if let Some(duration) = sleep_duration {
+                        retry_count += 1;
+                        if retry_count > max_retries {
+                            tracing::error!("Max retries ({}) exceeded for Gemini API", max_retries);
+                            return Err(e);
+                        }
+                        sleep(duration).await;
                         continue;
                     }
                     return Err(e);
@@ -456,18 +474,29 @@ impl GenAiClient for GeminiClient {
         &self,
         request: GenerateContentWithCacheRequest,
     ) -> Result<GenerateContentResponse> {
+        let mut retry_count = 0;
+        let max_retries = 10;
         loop {
             match self.generate_content_with_cache_single(&request).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
-                    if let Some(GeminiError::QuotaExceeded(sleep_duration)) =
-                        e.downcast_ref::<GeminiError>()
-                    {
-                        tracing::warn!(
-                            "Gemini API quota exceeded (cache). Retrying in {:.2}s...",
-                            sleep_duration.as_secs_f64()
-                        );
-                        sleep(*sleep_duration).await;
+                    let mut sleep_duration = None;
+                    if let Some(GeminiError::QuotaExceeded(d)) = e.downcast_ref::<GeminiError>() {
+                        sleep_duration = Some(*d);
+                        tracing::warn!("Gemini API quota exceeded (cache). Retrying in {:.2}s...", d.as_secs_f64());
+                    } else if let Some(GeminiError::TransientError(d, _msg)) = e.downcast_ref::<GeminiError>() {
+                        let backoff = (d.as_secs_f64() * (1.5_f64.powi(retry_count))).min(300.0);
+                        sleep_duration = Some(Duration::from_secs_f64(backoff));
+                        tracing::warn!("Gemini API transient error (cache). Retrying in {:.2}s...", backoff);
+                    }
+
+                    if let Some(duration) = sleep_duration {
+                        retry_count += 1;
+                        if retry_count > max_retries {
+                            tracing::error!("Max retries ({}) exceeded for Gemini API (cache)", max_retries);
+                            return Err(e);
+                        }
+                        sleep(duration).await;
                         continue;
                     }
                     return Err(e);
