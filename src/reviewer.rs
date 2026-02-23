@@ -296,13 +296,48 @@ impl Reviewer {
             })
             .collect();
 
-        // Determine Baseline Candidates
+        // Determine Baseline Candidates and check patchset size limits
         let mut all_files = Vec::new();
+        let mut total_lines_changed = 0;
+
         for p in patches_json.iter() {
             if let Some(diff_str) = p["diff"].as_str() {
                 let files = extract_files_from_diff(diff_str);
                 all_files.extend(files);
+
+                for line in diff_str.lines() {
+                    if (line.starts_with('+') && !line.starts_with("+++"))
+                        || (line.starts_with('-') && !line.starts_with("---"))
+                    {
+                        total_lines_changed += 1;
+                    }
+                }
             }
+        }
+
+        all_files.sort();
+        all_files.dedup();
+        let unique_files_count = all_files.len();
+
+        if total_lines_changed > ctx.settings.review.max_lines_changed
+            || unique_files_count > ctx.settings.review.max_files_touched
+        {
+            info!(
+                "Patchset {} exceeds size limits (lines: {}, files: {}). Skipping review.",
+                patchset_id, total_lines_changed, unique_files_count
+            );
+            
+            // Mark individual patches as skipped
+            for p in &diffs {
+                let patch_id = p.0;
+                let _ = ctx.db.update_patch_status(patch_id, ReviewStatus::Skipped.as_str()).await;
+            }
+
+            let _ = ctx
+                .db
+                .update_patchset_status(patchset_id, ReviewStatus::Skipped.as_str())
+                .await;
+            return;
         }
 
         let body = if let Some(mid) = &patchset.message_id {

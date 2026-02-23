@@ -107,8 +107,20 @@ pub struct ReviewSettings {
     pub timeout_seconds: u64,
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
+    #[serde(default = "default_max_lines_changed")]
+    pub max_lines_changed: usize,
+    #[serde(default = "default_max_files_touched")]
+    pub max_files_touched: usize,
     #[serde(default)]
     pub ignore_files: Vec<String>,
+}
+
+fn default_max_lines_changed() -> usize {
+    10_000
+}
+
+fn default_max_files_touched() -> usize {
+    200
 }
 
 fn default_review_timeout() -> u64 {
