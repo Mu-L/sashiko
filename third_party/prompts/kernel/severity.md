@@ -40,9 +40,9 @@ Use the following definitions and examples:
 - **Definition**: Naming, style and coding style issues.
 - **Question to ask**: Is there any visible real life effect? If no, it's a low issue. Otherwise it's a medium issue.
 - **Examples**:
+    - Build issues (because there are better ways to find them).
     - Typos in comments.
     - Formatting issues.
-    - Potential build failures.
     - Confusing variable naming or comments.
     - Negligible performance regressions.
     - Unnecessary code complexity.
