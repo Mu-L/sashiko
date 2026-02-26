@@ -2103,6 +2103,7 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
         }
 
         function formatJsonExpandable(obj, id) {
+            if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch (e) { } }
             const jsonStr = JSON.stringify(obj);
             const size = formatSize(jsonStr.length);
             const sizeHtml = `<span class="json-size">(${size})</span>`;
