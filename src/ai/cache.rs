@@ -80,17 +80,14 @@ impl CacheManager {
 
         for (display_name, name) in existing {
             if display_name == expected_display_name {
-                if let Some(ignore) = ignore_cache_name {
-                    if name == ignore {
-                        tracing::warn!(
-                            "Deleting/Ignoring cache '{}' (MATCHED ignore target)",
-                            name
-                        );
-                        if let Err(e) = self.provider.delete_context_cache(&name).await {
-                            tracing::warn!("Failed to delete ignored cache {}: {}", name, e);
-                        }
-                        continue;
+                if let Some(ignore) = ignore_cache_name
+                    && name == ignore
+                {
+                    tracing::warn!("Deleting/Ignoring cache '{}' (MATCHED ignore target)", name);
+                    if let Err(e) = self.provider.delete_context_cache(&name).await {
+                        tracing::warn!("Failed to delete ignored cache {}: {}", name, e);
                     }
+                    continue;
                 }
 
                 if valid_candidate.is_none() {

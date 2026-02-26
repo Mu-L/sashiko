@@ -171,12 +171,11 @@ impl PromptRegistry {
         let mut paths = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "md") {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if filter(name) {
-                        paths.push(path);
-                    }
-                }
+            if path.extension().is_some_and(|ext| ext == "md")
+                && let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && filter(name)
+            {
+                paths.push(path);
             }
         }
         paths.sort();
@@ -201,10 +200,10 @@ impl PromptRegistry {
     ) -> String {
         let mut hasher = Sha256::new();
         hasher.update(content);
-        if let Some(tools) = tools {
-            if let Ok(json) = serde_json::to_string(tools) {
-                hasher.update(json);
-            }
+        if let Some(tools) = tools
+            && let Ok(json) = serde_json::to_string(tools)
+        {
+            hasher.update(json);
         }
         format!("{:x}", hasher.finalize())
     }

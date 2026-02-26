@@ -173,12 +173,12 @@ fn parse_subject_index(subject: &str) -> (u32, u32) {
     // Match [ ... M/N ... ]
     let re_brackets = RE_BRACKETS.get_or_init(|| Regex::new(r"\[.*?(\d+)/(\d+).*?\]").unwrap());
 
-    if let Some(caps) = re_brackets.captures(subject) {
-        if let (Some(i), Some(t)) = (caps.get(1), caps.get(2)) {
-            let index = i.as_str().parse().unwrap_or(1);
-            let total = t.as_str().parse().unwrap_or(1);
-            return (index, total);
-        }
+    if let Some(caps) = re_brackets.captures(subject)
+        && let (Some(i), Some(t)) = (caps.get(1), caps.get(2))
+    {
+        let index = i.as_str().parse().unwrap_or(1);
+        let total = t.as_str().parse().unwrap_or(1);
+        return (index, total);
     }
 
     static RE_LOOSE: OnceLock<Regex> = OnceLock::new();
@@ -186,24 +186,24 @@ fn parse_subject_index(subject: &str) -> (u32, u32) {
     let re_loose =
         RE_LOOSE.get_or_init(|| Regex::new(r"(?i)\b(?:PATCH|RFC|RESEND)\s+(\d+)/(\d+)\b").unwrap());
 
-    if let Some(caps) = re_loose.captures(subject) {
-        if let (Some(i), Some(t)) = (caps.get(1), caps.get(2)) {
-            let index = i.as_str().parse().unwrap_or(1);
-            let total = t.as_str().parse().unwrap_or(1);
-            return (index, total);
-        }
+    if let Some(caps) = re_loose.captures(subject)
+        && let (Some(i), Some(t)) = (caps.get(1), caps.get(2))
+    {
+        let index = i.as_str().parse().unwrap_or(1);
+        let total = t.as_str().parse().unwrap_or(1);
+        return (index, total);
     }
 
     // Check cleaned subject for "1/2" at start (Handles "[PATCH] 1/2")
     let cleaned = clean_subject(subject);
     static RE_START: OnceLock<Regex> = OnceLock::new();
     let re_start = RE_START.get_or_init(|| Regex::new(r"^\s*(\d+)/(\d+)\b").unwrap());
-    if let Some(caps) = re_start.captures(&cleaned) {
-        if let (Some(i), Some(t)) = (caps.get(1), caps.get(2)) {
-            let index = i.as_str().parse().unwrap_or(1);
-            let total = t.as_str().parse().unwrap_or(1);
-            return (index, total);
-        }
+    if let Some(caps) = re_start.captures(&cleaned)
+        && let (Some(i), Some(t)) = (caps.get(1), caps.get(2))
+    {
+        let index = i.as_str().parse().unwrap_or(1);
+        let total = t.as_str().parse().unwrap_or(1);
+        return (index, total);
     }
 
     (1, 1)
@@ -290,12 +290,12 @@ pub fn clean_subject(subject: &str) -> String {
         changed = false;
         let lower = cleaned.to_lowercase();
         for prefix in &prefixes {
-            if lower.starts_with(prefix) {
-                if let Some(rest) = cleaned.get(prefix.len()..) {
-                    cleaned = rest.trim().to_string();
-                    changed = true;
-                    break;
-                }
+            if lower.starts_with(prefix)
+                && let Some(rest) = cleaned.get(prefix.len()..)
+            {
+                cleaned = rest.trim().to_string();
+                changed = true;
+                break;
             }
         }
     }
@@ -304,12 +304,11 @@ pub fn clean_subject(subject: &str) -> String {
 }
 
 pub fn extract_email(author: &str) -> String {
-    if let Some(start) = author.find('<') {
-        if let Some(end) = author.find('>') {
-            if end > start {
-                return author[start + 1..end].trim().to_string();
-            }
-        }
+    if let Some(start) = author.find('<')
+        && let Some(end) = author.find('>')
+        && end > start
+    {
+        return author[start + 1..end].trim().to_string();
     }
     author.trim().to_string()
 }

@@ -680,18 +680,18 @@ impl Reviewer {
             let mut current_status = "Failed".to_string();
 
             // Check remote
-            if let BaselineResolution::RemoteTarget { url, name, .. } = candidate {
-                if let Err(e) = ensure_remote(&repo_path, name, url, false).await {
-                    let msg = format!("Failed to fetch remote {}: {}\n", redact_secret(url), e);
-                    current_log.push_str(&msg);
-                    error!("{}", msg.trim());
-                    attempts.push(BaselineAttempt {
-                        baseline: baseline_ref.clone(),
-                        status: current_status,
-                        log: current_log,
-                    });
-                    continue;
-                }
+            if let BaselineResolution::RemoteTarget { url, name, .. } = candidate
+                && let Err(e) = ensure_remote(&repo_path, name, url, false).await
+            {
+                let msg = format!("Failed to fetch remote {}: {}\n", redact_secret(url), e);
+                current_log.push_str(&msg);
+                error!("{}", msg.trim());
+                attempts.push(BaselineAttempt {
+                    baseline: baseline_ref.clone(),
+                    status: current_status,
+                    log: current_log,
+                });
+                continue;
             }
 
             // Resolve SHA
@@ -801,24 +801,24 @@ impl Reviewer {
                         applied = true;
                     } else {
                         // Fallback raw diff
-                        if let Ok(o) = worktree.apply_raw_diff(diff).await {
-                            if o.status.success() {
-                                applied = true;
-                                // Commit raw diff
-                                let _ = Command::new("git")
-                                    .current_dir(&worktree.path)
-                                    .args(["add", "."])
-                                    .output()
-                                    .await;
-                                let commit_msg = format!("{}\n\n(Applied via git apply)", subject);
-                                let _ = Command::new("git")
-                                    .current_dir(&worktree.path)
-                                    .env("GIT_AUTHOR_NAME", author)
-                                    .env("GIT_AUTHOR_EMAIL", "sashiko@localhost")
-                                    .args(["commit", "-m", &commit_msg])
-                                    .output()
-                                    .await;
-                            }
+                        if let Ok(o) = worktree.apply_raw_diff(diff).await
+                            && o.status.success()
+                        {
+                            applied = true;
+                            // Commit raw diff
+                            let _ = Command::new("git")
+                                .current_dir(&worktree.path)
+                                .args(["add", "."])
+                                .output()
+                                .await;
+                            let commit_msg = format!("{}\n\n(Applied via git apply)", subject);
+                            let _ = Command::new("git")
+                                .current_dir(&worktree.path)
+                                .env("GIT_AUTHOR_NAME", author)
+                                .env("GIT_AUTHOR_EMAIL", "sashiko@localhost")
+                                .args(["commit", "-m", &commit_msg])
+                                .output()
+                                .await;
                         }
                     }
                 }
@@ -1053,28 +1053,25 @@ impl Reviewer {
                     if let Some(h) = history.and_then(|h| h.as_array()) {
                         // Tool usage recording (same as before)
                         for item in h {
-                            if let Some(role) = item.get("role").and_then(|r| r.as_str()) {
-                                if role == "assistant" {
-                                    if let Some(calls) =
-                                        item.get("tool_calls").and_then(|c| c.as_array())
-                                    {
-                                        for call in calls {
-                                            let name =
-                                                call["function_name"].as_str().unwrap_or("unknown");
-                                            let args = call["arguments"].to_string();
-                                            let _ = ctx
-                                                .db
-                                                .create_tool_usage(ToolUsage {
-                                                    review_id,
-                                                    provider: ctx.settings.ai.provider.clone(),
-                                                    model: ctx.settings.ai.model.clone(),
-                                                    tool_name: name.to_string(),
-                                                    arguments: Some(args),
-                                                    output_length: 0,
-                                                })
-                                                .await;
-                                        }
-                                    }
+                            if let Some(role) = item.get("role").and_then(|r| r.as_str())
+                                && role == "assistant"
+                                && let Some(calls) =
+                                    item.get("tool_calls").and_then(|c| c.as_array())
+                            {
+                                for call in calls {
+                                    let name = call["function_name"].as_str().unwrap_or("unknown");
+                                    let args = call["arguments"].to_string();
+                                    let _ = ctx
+                                        .db
+                                        .create_tool_usage(ToolUsage {
+                                            review_id,
+                                            provider: ctx.settings.ai.provider.clone(),
+                                            model: ctx.settings.ai.model.clone(),
+                                            tool_name: name.to_string(),
+                                            arguments: Some(args),
+                                            output_length: 0,
+                                        })
+                                        .await;
                                 }
                             }
                         }
@@ -1366,16 +1363,15 @@ async fn run_review_tool(
         cmd.arg("--review-commit").arg(commit);
     }
 
-    if let Some(name) = cache_name {
-        if settings
+    if let Some(name) = cache_name
+        && settings
             .ai
             .gemini
             .as_ref()
             .map(|g| g.explicit_prompt_caching)
             .unwrap_or(false)
-        {
-            cmd.arg("--gemini-cache").arg(name);
-        }
+    {
+        cmd.arg("--gemini-cache").arg(name);
     }
 
     if settings.ai.no_ai {
@@ -1450,15 +1446,15 @@ async fn run_review_tool(
                                         .await;
                                     ai_started = true;
                                 }
-                                if let Some(payload_val) = json_msg.get("payload") {
-                                    if let Ok(mut req) =
+                                if let Some(payload_val) = json_msg.get("payload")
+                                    && let Ok(mut req) =
                                         serde_json::from_value::<AiRequest>(payload_val.clone())
                                     {
                                         // Update stale cache name if needed
                                         {
                                             let guard = active_cache_name.lock().await;
-                                            if let Some(active_name) = guard.as_ref() {
-                                                if req.preloaded_context.is_some()
+                                            if let Some(active_name) = guard.as_ref()
+                                                && req.preloaded_context.is_some()
                                                     && req.preloaded_context.as_ref()
                                                         != Some(active_name)
                                                 {
@@ -1469,7 +1465,6 @@ async fn run_review_tool(
                                                     req.preloaded_context =
                                                         Some(active_name.clone());
                                                 }
-                                            }
                                         }
 
                                         let mut cache_retry_done = false;
@@ -1494,8 +1489,8 @@ async fn run_review_tool(
                                                             req.preloaded_context.clone();
 
                                                         // Check if another task already refreshed it
-                                                        if let Some(active_name) = guard.as_ref() {
-                                                            if stale_cache.as_ref()
+                                                        if let Some(active_name) = guard.as_ref()
+                                                            && stale_cache.as_ref()
                                                                 != Some(active_name)
                                                             {
                                                                 info!(
@@ -1507,7 +1502,6 @@ async fn run_review_tool(
                                                                 drop(guard);
                                                                 continue;
                                                             }
-                                                        }
 
                                                         // Clear the current active cache name as requested
                                                         *guard = None;
@@ -1558,11 +1552,10 @@ async fn run_review_tool(
                                         }
                                         let _ = stdin.flush().await;
                                     }
-                                }
                             }
                             "ai_create_cache" => {
-                                if let Some(payload) = json_msg.get("payload") {
-                                    if let Ok(req) =
+                                if let Some(payload) = json_msg.get("payload")
+                                    && let Ok(req) =
                                         serde_json::from_value::<AiRequest>(payload["request"].clone())
                                     {
                                         let ttl = payload["ttl"].as_str().unwrap_or("3600s").to_string();
@@ -1586,7 +1579,6 @@ async fn run_review_tool(
                                         stdin.write_all(reply_str.as_bytes()).await?;
                                         stdin.flush().await?;
                                     }
-                                }
                             }
                             "ai_delete_cache" => {
                                 if let Some(name) = json_msg.get("payload").and_then(|v| v.as_str()) {
@@ -1722,8 +1714,8 @@ async fn run_review_tool(
             );
             let _ = child.kill().await;
 
-            if let Some(idx) = review_index {
-                if let Err(e) = db
+            if let Some(idx) = review_index
+                && let Err(e) = db
                     .update_patch_application_status(
                         patchset_id,
                         idx,
@@ -1731,12 +1723,11 @@ async fn run_review_tool(
                         Some("Review tool timed out"),
                     )
                     .await
-                {
-                    error!(
-                        "Failed to update patch status for ps={} idx={}: {}",
-                        patchset_id, idx, e
-                    );
-                }
+            {
+                error!(
+                    "Failed to update patch status for ps={} idx={}: {}",
+                    patchset_id, idx, e
+                );
             }
 
             Err(anyhow::anyhow!("Review tool timed out"))

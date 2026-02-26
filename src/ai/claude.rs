@@ -400,21 +400,21 @@ fn translate_ai_request(request: &AiRequest, enable_caching: bool) -> Result<Cla
 
 fn apply_cache_control(request: &mut ClaudeRequest) {
     // Mark last system block for caching
-    if let Some(system) = &mut request.system {
-        if let Some(last_block) = system.last_mut() {
-            last_block.cache_control = Some(CacheControl {
-                cache_type: "ephemeral".to_string(),
-            });
-        }
+    if let Some(system) = &mut request.system
+        && let Some(last_block) = system.last_mut()
+    {
+        last_block.cache_control = Some(CacheControl {
+            cache_type: "ephemeral".to_string(),
+        });
     }
 
     // Mark last tool for caching (if tools exist)
-    if let Some(tools) = &mut request.tools {
-        if let Some(last_tool) = tools.last_mut() {
-            last_tool.cache_control = Some(CacheControl {
-                cache_type: "ephemeral".to_string(),
-            });
-        }
+    if let Some(tools) = &mut request.tools
+        && let Some(last_tool) = tools.last_mut()
+    {
+        last_tool.cache_control = Some(CacheControl {
+            cache_type: "ephemeral".to_string(),
+        });
     }
 }
 

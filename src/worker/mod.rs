@@ -18,17 +18,17 @@ fn find_json_candidates(text: &str) -> Vec<Value> {
     let mut i = 0;
 
     while i < chars.len() {
-        if chars[i] == '{' {
-            if let Some(end) = find_matching_brace(&chars, i) {
-                let candidate: String = chars[i..=end].iter().collect();
-                let clean_candidate = crate::utils::clean_json_string(&candidate);
-                if let Ok(v) = serde_json::from_str(&clean_candidate)
-                    .or_else(|_| serde_json::from_str(&candidate))
-                {
-                    candidates.push(v);
-                    i = end + 1;
-                    continue;
-                }
+        if chars[i] == '{'
+            && let Some(end) = find_matching_brace(&chars, i)
+        {
+            let candidate: String = chars[i..=end].iter().collect();
+            let clean_candidate = crate::utils::clean_json_string(&candidate);
+            if let Ok(v) =
+                serde_json::from_str(&clean_candidate).or_else(|_| serde_json::from_str(&candidate))
+            {
+                candidates.push(v);
+                i = end + 1;
+                continue;
             }
         }
         i += 1;

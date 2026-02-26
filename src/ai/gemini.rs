@@ -256,10 +256,10 @@ impl GeminiClient {
             .unwrap_or_else(|_| "https://generativelanguage.googleapis.com".to_string());
 
         let mut headers = reqwest::header::HeaderMap::new();
-        if !api_key.is_empty() {
-            if let Ok(value) = reqwest::header::HeaderValue::from_str(&api_key) {
-                headers.insert("x-goog-api-key", value);
-            }
+        if !api_key.is_empty()
+            && let Ok(value) = reqwest::header::HeaderValue::from_str(&api_key)
+        {
+            headers.insert("x-goog-api-key", value);
         }
         let client = reqwest::Client::builder()
             .default_headers(headers)

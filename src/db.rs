@@ -272,10 +272,10 @@ impl Database {
 
         if let Ok(Some(row)) = rows.next().await {
             let body: Option<String> = row.get(0).ok();
-            if let Some(b) = body {
-                if !b.is_empty() {
-                    return Ok(Some(b));
-                }
+            if let Some(b) = body
+                && !b.is_empty()
+            {
+                return Ok(Some(b));
             }
             // Try git blob
             let hash: Option<String> = row.get(1).ok();
@@ -711,12 +711,12 @@ impl Database {
                     libsql::params![review_id],
                 )
                 .await;
-            if let Ok(mut c_rows) = count_rows {
-                if let Ok(Some(c_row)) = c_rows.next().await {
-                    let count: i64 = c_row.get(0)?;
-                    if count > 0 {
-                        continue;
-                    }
+            if let Ok(mut c_rows) = count_rows
+                && let Ok(Some(c_row)) = c_rows.next().await
+            {
+                let count: i64 = c_row.get(0)?;
+                if count > 0 {
+                    continue;
                 }
             }
 
@@ -801,47 +801,47 @@ impl Database {
                     libsql::params![review_id],
                 )
                 .await;
-            if let Ok(mut c_rows) = count_check {
-                if let Ok(Some(c_row)) = c_rows.next().await {
-                    let count: i64 = c_row.get(0)?;
-                    if count > 0 {
-                        continue;
-                    }
+            if let Ok(mut c_rows) = count_check
+                && let Ok(Some(c_row)) = c_rows.next().await
+            {
+                let count: i64 = c_row.get(0)?;
+                if count > 0 {
+                    continue;
                 }
             }
 
             // Parse JSON and insert findings
-            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&output_raw) {
-                if let Some(findings_arr) = json_val.get("findings").and_then(|f| f.as_array()) {
-                    for f in findings_arr {
-                        let severity_str = f["severity"].as_str().unwrap_or("Low");
+            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&output_raw)
+                && let Some(findings_arr) = json_val.get("findings").and_then(|f| f.as_array())
+            {
+                for f in findings_arr {
+                    let severity_str = f["severity"].as_str().unwrap_or("Low");
 
-                        // New format: problem, severity_explanation
-                        // Old format: message
-                        let problem = if let Some(p) = f.get("problem").and_then(|s| s.as_str()) {
-                            p.to_string()
-                        } else {
-                            f["message"].as_str().unwrap_or("").to_string()
-                        };
+                    // New format: problem, severity_explanation
+                    // Old format: message
+                    let problem = if let Some(p) = f.get("problem").and_then(|s| s.as_str()) {
+                        p.to_string()
+                    } else {
+                        f["message"].as_str().unwrap_or("").to_string()
+                    };
 
-                        let severity_explanation = f
-                            .get("severity_explanation")
-                            .and_then(|s| s.as_str())
-                            .map(|s| s.to_string());
-                        let suggestion = f["suggestion"].as_str().map(|s| s.to_string());
+                    let severity_explanation = f
+                        .get("severity_explanation")
+                        .and_then(|s| s.as_str())
+                        .map(|s| s.to_string());
+                    let suggestion = f["suggestion"].as_str().map(|s| s.to_string());
 
-                        let severity = Severity::from_str(severity_str);
+                    let severity = Severity::from_str(severity_str);
 
-                        let _ = self
-                            .create_finding(Finding {
-                                review_id,
-                                severity,
-                                severity_explanation,
-                                problem,
-                                suggestion,
-                            })
-                            .await;
-                    }
+                    let _ = self
+                        .create_finding(Finding {
+                            review_id,
+                            severity,
+                            severity_explanation,
+                            problem,
+                            suggestion,
+                        })
+                        .await;
                 }
             }
         }
@@ -1390,48 +1390,48 @@ impl Database {
         mailing_list: Option<&str>,
     ) -> Result<()> {
         // Check for thread merge (Thread split resolution)
-        if let Ok(Some(old_thread_id)) = self.get_thread_id_for_message(message_id).await {
-            if old_thread_id != thread_id {
-                info!("Merging thread {} into {}", old_thread_id, thread_id);
-                // 1. Move messages
-                self.conn
-                    .execute(
-                        "UPDATE messages SET thread_id = ? WHERE thread_id = ?",
-                        libsql::params![thread_id, old_thread_id],
-                    )
-                    .await?;
+        if let Ok(Some(old_thread_id)) = self.get_thread_id_for_message(message_id).await
+            && old_thread_id != thread_id
+        {
+            info!("Merging thread {} into {}", old_thread_id, thread_id);
+            // 1. Move messages
+            self.conn
+                .execute(
+                    "UPDATE messages SET thread_id = ? WHERE thread_id = ?",
+                    libsql::params![thread_id, old_thread_id],
+                )
+                .await?;
 
-                // 2. Move patchsets
-                self.conn
-                    .execute(
-                        "UPDATE patchsets SET thread_id = ? WHERE thread_id = ?",
-                        libsql::params![thread_id, old_thread_id],
-                    )
-                    .await?;
+            // 2. Move patchsets
+            self.conn
+                .execute(
+                    "UPDATE patchsets SET thread_id = ? WHERE thread_id = ?",
+                    libsql::params![thread_id, old_thread_id],
+                )
+                .await?;
 
-                // 3. Merge subsystems
-                self.conn
-                    .execute(
-                        "UPDATE OR IGNORE threads_subsystems SET thread_id = ? WHERE thread_id = ?",
-                        libsql::params![thread_id, old_thread_id],
-                    )
-                    .await?;
-                // Delete any remaining (conflicting) subsystem mappings for the old thread
-                self.conn
-                    .execute(
-                        "DELETE FROM threads_subsystems WHERE thread_id = ?",
-                        libsql::params![old_thread_id],
-                    )
-                    .await?;
+            // 3. Merge subsystems
+            self.conn
+                .execute(
+                    "UPDATE OR IGNORE threads_subsystems SET thread_id = ? WHERE thread_id = ?",
+                    libsql::params![thread_id, old_thread_id],
+                )
+                .await?;
+            // Delete any remaining (conflicting) subsystem mappings for the old thread
+            self.conn
+                .execute(
+                    "DELETE FROM threads_subsystems WHERE thread_id = ?",
+                    libsql::params![old_thread_id],
+                )
+                .await?;
 
-                // 5. Delete old thread
-                self.conn
-                    .execute(
-                        "DELETE FROM threads WHERE id = ?",
-                        libsql::params![old_thread_id],
-                    )
-                    .await?;
-            }
+            // 5. Delete old thread
+            self.conn
+                .execute(
+                    "DELETE FROM threads WHERE id = ?",
+                    libsql::params![old_thread_id],
+                )
+                .await?;
         }
 
         // Use INSERT OR REPLACE to handle updating placeholders.
@@ -1943,15 +1943,15 @@ impl Database {
             .await?;
 
         // Update received_parts for the OLD patchset (if we moved it)
-        if let Some(old_id) = old_patchset_id {
-            if old_id != patchset_id {
-                self.conn
+        if let Some(old_id) = old_patchset_id
+            && old_id != patchset_id
+        {
+            self.conn
                         .execute(
                             "UPDATE patchsets SET received_parts = (SELECT COUNT(*) FROM patches WHERE patchset_id = ?) WHERE id = ?",
                             libsql::params![old_id, old_id],
                         )
                         .await?;
-            }
         }
 
         // Check if complete and update status
@@ -1989,13 +1989,14 @@ impl Database {
         // Always exclude placeholders
         conditions.push("subject != '(placeholder)'".to_string());
 
-        if let Some(list) = mailing_list {
-            if !list.is_empty() {
-                if target == "patchset" {
-                    // Filter patchsets where any patch OR the cover letter is in the mailing list
-                    // We use p.id to avoid ambiguity with joined tables (e.g. subsystems.id)
-                    conditions.push(
-                        "p.id IN (
+        if let Some(list) = mailing_list
+            && !list.is_empty()
+        {
+            if target == "patchset" {
+                // Filter patchsets where any patch OR the cover letter is in the mailing list
+                // We use p.id to avoid ambiguity with joined tables (e.g. subsystems.id)
+                conditions.push(
+                    "p.id IN (
                         SELECT patchset_id FROM patches p2 
                         JOIN messages m ON p2.message_id = m.message_id 
                         JOIN messages_mailing_lists mml ON m.id = mml.message_id 
@@ -2008,15 +2009,14 @@ impl Database {
                         JOIN mailing_lists ml ON mml.mailing_list_id = ml.id 
                         WHERE ml.nntp_group = ?
                     )"
-                        .to_string(),
-                    );
-                    params.push(list.clone());
-                    params.push(list);
-                } else {
-                    // Filter messages
-                    conditions.push("id IN (SELECT message_id FROM messages_mailing_lists mml JOIN mailing_lists ml ON mml.mailing_list_id = ml.id WHERE ml.nntp_group = ?)".to_string());
-                    params.push(list);
-                }
+                    .to_string(),
+                );
+                params.push(list.clone());
+                params.push(list);
+            } else {
+                // Filter messages
+                conditions.push("id IN (SELECT message_id FROM messages_mailing_lists mml JOIN mailing_lists ml ON mml.mailing_list_id = ml.id WHERE ml.nntp_group = ?)".to_string());
+                params.push(list);
             }
         }
 
