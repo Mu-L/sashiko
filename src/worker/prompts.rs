@@ -393,7 +393,7 @@ impl Worker {
 
         // Prefetch AST context based on the diff
         let worktree_path = self.tools.get_worktree_path();
-        if let Ok((prefetched, _prefetch_summary)) =
+        if let Ok(prefetched) =
             crate::worker::prefetch::prefetch_context(worktree_path, &target_commit_diff).await
             && !prefetched.is_empty()
         {

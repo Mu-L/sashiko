@@ -1,23 +1,9 @@
 use anyhow::Result;
 use regex::Regex;
-use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tokio::fs;
-use tracing::info;
 use tree_sitter::{Parser, Point};
-
-#[derive(Serialize)]
-struct PrefetchRangeLog {
-    start_line: usize,
-    end_line: usize,
-}
-
-#[derive(Serialize)]
-struct PrefetchFileLog {
-    filename: String,
-    ranges: Vec<PrefetchRangeLog>,
-}
 
 /// Parses a unified diff and returns a map of filename -> list of modified line ranges.
 /// Line numbers are 0-based to align with Tree-sitter's Point API.
@@ -198,26 +184,9 @@ pub fn extract_identifiers(
     ids
 }
 
-pub async fn prefetch_context(worktree_path: &Path, diff: &str) -> Result<(String, String)> {
+pub async fn prefetch_context(worktree_path: &Path, diff: &str) -> Result<String> {
     let mut context_blocks = Vec::new();
     let file_ranges = parse_diff_ranges(diff);
-
-    let log_data: Vec<PrefetchFileLog> = file_ranges
-        .iter()
-        .map(|(filename, ranges)| PrefetchFileLog {
-            filename: filename.clone(),
-            ranges: ranges
-                .iter()
-                .map(|&(start, end)| PrefetchRangeLog {
-                    start_line: start,
-                    end_line: end,
-                })
-                .collect(),
-        })
-        .collect();
-
-    let summary_json = serde_json::to_string_pretty(&log_data).unwrap_or_default();
-    info!("Prefetching context for ranges: {}", summary_json);
 
     let mut symbols_to_lookup = HashSet::new();
 
@@ -294,7 +263,7 @@ pub async fn prefetch_context(worktree_path: &Path, diff: &str) -> Result<(Strin
     }
     context_blocks.extend(definitions);
 
-    Ok((context_blocks.join("\n"), summary_json))
+    Ok(context_blocks.join("\n"))
 }
 
 #[cfg(test)]
