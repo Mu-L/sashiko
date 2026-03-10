@@ -401,13 +401,12 @@ impl Worker {
         let mut total_tokens_out = 0;
         let mut total_tokens_cached = 0;
 
-        let (mut shared_context, mut clean_shared_context) = self.prompts.build_context().await?;
+        let (static_context, clean_static_context) = self.prompts.build_context().await?;
 
-        shared_context.push_str("\n\nTarget Commit:\n");
-        shared_context.push_str(&target_commit_diff);
-
-        clean_shared_context.push_str("\n\nTarget Commit:\n");
-        clean_shared_context.push_str(&target_commit_diff);
+        let mut dynamic_context = String::new();
+        dynamic_context.push_str("\n\nTarget Commit:\n");
+        dynamic_context.push_str(&target_commit_diff);
+        let mut clean_dynamic_context = dynamic_context.clone();
 
         // Prefetch AST context based on the diff
         let worktree_path = self.tools.get_worktree_path();
@@ -415,17 +414,29 @@ impl Worker {
             crate::worker::prefetch::prefetch_context(worktree_path, &target_commit_diff).await
             && !prefetched.is_empty()
         {
-            shared_context.push_str("\n\n<pre_fetched_context>\n");
-            shared_context.push_str("The following context was automatically pre-fetched based on the modified lines in the patch. It contains the full source code of the functions and structs modified by the diff AFTER applying the target patch.\n");
-            shared_context.push_str("If it's not sufficient, you MUST use available tools to explore the source code. Don't make assumptions without actually looking into the relevant code.\n\n");
-            shared_context.push_str(&prefetched);
-            shared_context.push_str("\n</pre_fetched_context>\n");
+            dynamic_context.push_str("\n\n<pre_fetched_context>\n");
+            dynamic_context.push_str("The following context was automatically pre-fetched based on the modified lines in the patch. It contains the full source code of the functions and structs modified by the diff AFTER applying the target patch.\n");
+            dynamic_context.push_str("If it's not sufficient, you MUST use available tools to explore the source code. Don't make assumptions without actually looking into the relevant code.\n\n");
+            dynamic_context.push_str(&prefetched);
+            dynamic_context.push_str("\n</pre_fetched_context>\n");
 
-            clean_shared_context.push_str("\n\n<pre_fetched_context>\n");
-            clean_shared_context.push_str("The following context was automatically pre-fetched based on the modified lines in the patch. It contains the full source code of the functions and structs modified by the diff AFTER applying the target patch.\n");
-            clean_shared_context.push_str("If it's not sufficient, you MUST use available tools to explore the source code. Don't make assumptions without actually looking into the relevant code.\n\n");
-            clean_shared_context.push_str("{{prefetched_context}}\n</pre_fetched_context>\n");
+            clean_dynamic_context.push_str("\n\n<pre_fetched_context>\n");
+            clean_dynamic_context.push_str("The following context was automatically pre-fetched based on the modified lines in the patch. It contains the full source code of the functions and structs modified by the diff AFTER applying the target patch.\n");
+            clean_dynamic_context.push_str("If it's not sufficient, you MUST use available tools to explore the source code. Don't make assumptions without actually looking into the relevant code.\n\n");
+            clean_dynamic_context.push_str("{{prefetched_context}}\n</pre_fetched_context>\n");
         }
+
+        let (shared_context, clean_shared_context) = if self.cache_name.is_some() {
+            // When using explicit cache (e.g. Gemini), the static_context is already in the cache.
+            // We only need to provide the dynamic context as our system prompt.
+            (dynamic_context, clean_dynamic_context)
+        } else {
+            // Without cache (or with implicit cache like Claude), we send everything.
+            (
+                format!("{}{}", static_context, dynamic_context),
+                format!("{}{}", clean_static_context, clean_dynamic_context),
+            )
+        };
 
         // Stages 1-7
         for stage in 1..=7 {
@@ -731,21 +742,6 @@ Example:
     ) -> Result<(String, u32, u32, u32)> {
         let mut local_history = Vec::new();
 
-        let sys_msg = AiMessage {
-            role: AiRole::System,
-            content: Some(system_prompt.clone()),
-            thought: None,
-            tool_calls: None,
-            tool_call_id: None,
-        };
-        let clean_sys_msg = AiMessage {
-            role: AiRole::System,
-            content: Some(clean_system_prompt),
-            thought: None,
-            tool_calls: None,
-            tool_call_id: None,
-        };
-
         let user_msg = AiMessage {
             role: AiRole::User,
             content: Some(user_prompt.clone()),
@@ -756,7 +752,16 @@ Example:
         local_history.push(user_msg.clone());
 
         if self.global_history.is_empty() {
-            self.global_history.push(clean_sys_msg);
+            // Keep a clean version for testing/history, we can just push the user prompt.
+            // But we don't have a clean sys_msg anymore as an AiMessage.
+            // Let's create an informational System message in global history just to record the context.
+            self.global_history.push(AiMessage {
+                role: AiRole::System,
+                content: Some(clean_system_prompt.clone()),
+                thought: None,
+                tool_calls: None,
+                tool_call_id: None,
+            });
         }
         self.global_history.push(AiMessage {
             role: AiRole::User,
@@ -778,12 +783,8 @@ Example:
             }
 
             let request = crate::ai::AiRequest {
-                system: None,
-                messages: {
-                    let mut m = vec![sys_msg.clone()];
-                    m.extend(local_history.clone());
-                    m
-                },
+                system: Some(system_prompt.clone()),
+                messages: local_history.clone(),
                 tools: Some(self.tools.get_declarations_generic()),
                 temperature: Some(self.temperature),
                 preloaded_context: self.cache_name.clone(),

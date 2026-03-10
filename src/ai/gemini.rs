@@ -561,6 +561,28 @@ fn translate_ai_request(request: AiRequest) -> Result<GenerateContentRequest> {
     let mut system_instruction = None;
     let has_cache = request.preloaded_context.is_some();
 
+    if let Some(sys_content) = request.system {
+        if has_cache {
+            contents.push(Content {
+                role: "user".to_string(),
+                parts: vec![Part::Text {
+                    text: sys_content,
+                    thought_signature: None,
+                    thought: false,
+                }],
+            });
+        } else {
+            system_instruction = Some(Content {
+                role: "user".to_string(),
+                parts: vec![Part::Text {
+                    text: sys_content,
+                    thought_signature: None,
+                    thought: false,
+                }],
+            });
+        }
+    }
+
     for msg in request.messages {
         match msg.role {
             AiRole::System => {
@@ -574,23 +596,27 @@ fn translate_ai_request(request: AiRequest) -> Result<GenerateContentRequest> {
                             thought: false,
                         };
                         if let Some(last) = contents.last_mut()
-                            && last.role == "user" {
-                                last.parts.push(part);
-                                continue;
-                            }
+                            && last.role == "user"
+                        {
+                            last.parts.push(part);
+                            continue;
+                        }
                         contents.push(Content {
                             role: "user".to_string(),
                             parts: vec![part],
                         });
                     } else {
-                        system_instruction = Some(Content {
-                            role: "user".to_string(), // role is ignored for system_instruction but required by struct
-                            parts: vec![Part::Text {
-                                text: content,
-                                thought_signature: None,
-                                thought: false,
-                            }],
-                        });
+                        // Only set if not already set by request.system
+                        if system_instruction.is_none() {
+                            system_instruction = Some(Content {
+                                role: "user".to_string(), // role is ignored for system_instruction but required by struct
+                                parts: vec![Part::Text {
+                                    text: content,
+                                    thought_signature: None,
+                                    thought: false,
+                                }],
+                            });
+                        }
                     }
                 }
             }
@@ -601,10 +627,11 @@ fn translate_ai_request(request: AiRequest) -> Result<GenerateContentRequest> {
                     thought: false,
                 };
                 if let Some(last) = contents.last_mut()
-                    && last.role == "user" {
-                        last.parts.push(part);
-                        continue;
-                    }
+                    && last.role == "user"
+                {
+                    last.parts.push(part);
+                    continue;
+                }
                 contents.push(Content {
                     role: "user".to_string(),
                     parts: vec![part],

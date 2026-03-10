@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ai::{AiMessage, AiProvider, AiRequest, AiRole, AiTool};
+use crate::ai::{AiProvider, AiRequest, AiTool};
 use crate::worker::prompts::PromptRegistry;
 use anyhow::Result;
 use std::path::PathBuf;
@@ -107,14 +107,8 @@ impl CacheManager {
 
         // Create new cache
         let request = AiRequest {
-            system: None,
-            messages: vec![AiMessage {
-                role: AiRole::User,
-                content: Some(context_str),
-                thought: None,
-                tool_calls: None,
-                tool_call_id: None,
-            }],
+            system: Some(context_str),
+            messages: vec![],
             tools: self.tools.clone(),
             temperature: None,
             preloaded_context: None,
@@ -205,7 +199,8 @@ mod tests {
             .unwrap()
             .take()
             .expect("create_context_cache not called");
-        assert!(!request.messages.is_empty());
+        assert!(request.messages.is_empty());
+        assert!(request.system.is_some());
     }
 
     #[tokio::test]
