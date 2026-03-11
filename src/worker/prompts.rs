@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ai::{AiMessage, AiProvider, AiRole};
+use crate::ai::{AiMessage, AiProvider, AiRequest, AiResponseFormat, AiRole};
 use crate::worker::tools::ToolBox;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -116,7 +116,7 @@ impl PromptRegistry {
     /// This is used for:
     /// 1. Populating the Context Cache.
     /// 2. Constructing the full prompt in non-cached mode.
-    pub async fn build_context(&self) -> Result<(String, String)> {
+    pub async fn build_context(&self, selected_prompts: Option<&[String]>) -> Result<(String, String)> {
         let mut clean = String::with_capacity(50_000);
         let mut clean_files = Vec::new();
         let mut content = String::with_capacity(50_000);
@@ -138,7 +138,14 @@ impl PromptRegistry {
 
         if subsystem_dir.exists() {
             self.append_directory(&mut content, &mut clean_files, &subsystem_dir, |name| {
-                !matches!(name, "README.md" | "subsystem-template.md")
+                if matches!(name, "README.md" | "subsystem-template.md" | "subsystem.md") {
+                    return false;
+                }
+                if let Some(selected) = selected_prompts {
+                    selected.iter().any(|s| name == s)
+                } else {
+                    true
+                }
             })
             .await?;
         }
@@ -148,7 +155,13 @@ impl PromptRegistry {
             &mut content,
             &mut clean_files,
             &self.base_dir.join("patterns"),
-            |_| true,
+            |name| {
+                if let Some(selected) = selected_prompts {
+                    selected.iter().any(|s| name == s)
+                } else {
+                    true
+                }
+            },
         )
         .await?;
 
@@ -389,7 +402,85 @@ impl Worker {
         let mut total_tokens_out = 0;
         let mut total_tokens_cached = 0;
 
-        let (static_context, clean_static_context) = self.prompts.build_context().await?;
+        // Phase 0: Pre-screen relevant prompts
+        let subsystem_md_path = self.prompts.base_dir.join("subsystem/subsystem.md");
+        let selected_prompts = if subsystem_md_path.exists() {
+            match tokio::fs::read_to_string(&subsystem_md_path).await {
+                Ok(subsystem_md) => {
+                    info!("Executing Phase 0: Pre-screening relevant subsystem guides.");
+                    let phase0_system = "You are an AI assistant preparing a Linux kernel patch review.\nReview the provided Patch and select all potentially relevant subsystem guides from the index below.\nCRITICAL BIAS RULE: You MUST err on the side of inclusion. Only exclude a guide if it is 100% irrelevant to the modified code. If there is any doubt, include the file.";
+                    let phase0_prompt = format!("<subsystem_guide_index>\n{}\n</subsystem_guide_index>\n\n<patch>\n{}\n</patch>", subsystem_md, target_commit_diff);
+                    let schema = json!({
+                        "type": "object",
+                        "properties": {
+                            "selected_prompts": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                            }
+                        },
+                        "required": ["selected_prompts"]
+                    });
+                    
+                    let req = AiRequest {
+                        system: Some(phase0_system.to_string()),
+                        messages: vec![AiMessage {
+                            role: AiRole::User,
+                            content: Some(phase0_prompt),
+                            thought: None,
+                            tool_calls: None,
+                            tool_call_id: None,
+                        }],
+                        tools: None,
+                        temperature: Some(0.0),
+                        response_format: Some(AiResponseFormat::Json { schema: Some(schema) }),
+                    };
+
+                    match self.provider.generate_content(req).await {
+                        Ok(resp) => {
+                            if let Some(usage) = &resp.usage {
+                                total_tokens_in += usage.prompt_tokens as u32;
+                                total_tokens_out += usage.completion_tokens as u32;
+                                total_tokens_cached += usage.cached_tokens.unwrap_or(0) as u32;
+                            }
+                            if let Some(content) = resp.content {
+                                match serde_json::from_str::<Value>(&content) {
+                                    Ok(val) => {
+                                        if let Some(arr) = val.get("selected_prompts").and_then(|v| v.as_array()) {
+                                            let prompts: Vec<String> = arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+                                            info!("Phase 0 selected prompts: {:?}", prompts);
+                                            Some(prompts)
+                                        } else {
+                                            warn!("Phase 0 JSON did not contain 'selected_prompts' array");
+                                            None
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Phase 0 JSON parse error: {}", e);
+                                        None
+                                    }
+                                }
+                            } else {
+                                warn!("Phase 0 returned no content");
+                                None
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Phase 0 completion failed: {}", e);
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to read subsystem.md for Phase 0: {}", e);
+                    None
+                }
+            }
+        } else {
+            warn!("subsystem.md not found for Phase 0 at {:?}", subsystem_md_path);
+            None
+        };
+
+        let (static_context, clean_static_context) = self.prompts.build_context(selected_prompts.as_deref()).await?;
 
         let mut dynamic_context = String::new();
         dynamic_context.push_str("\n\nTarget Commit:\n");
