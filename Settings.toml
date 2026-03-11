@@ -21,9 +21,6 @@ temperature = 1.0
 [ai.claude]
 prompt_caching = true
 
-[ai.gemini]
-explicit_prompt_caching = true
-
 [server]
 host = "127.0.0.1"
 port = 8081
