@@ -560,37 +560,54 @@ Example:
 ```"#;
             let user_prompt = format!("{}\n\n{}", stage_prompt, format_guidance);
             let clean_user_prompt = format!("{}\n\n{}", clean_stage_prompt, format_guidance);
-            match self
-                .run_ai_stage(
-                    stage,
-                    system_prompt,
-                    clean_system_prompt,
-                    user_prompt,
-                    clean_user_prompt,
-                )
-                .await
-            {
-                Ok((result_json, t_in, t_out, t_cached)) => {
-                    total_tokens_in += t_in;
-                    total_tokens_out += t_out;
-                    total_tokens_cached += t_cached;
 
-                    if let Some(concerns) = result_json.get("concerns").and_then(|c| c.as_array()) {
-                        for c in concerns {
-                            if c.is_object() {
-                                all_concerns.push(c.clone());
-                            } else if let Some(s) = c.as_str() {
-                                all_concerns.push(serde_json::json!({
-                                    "type": "General",
-                                    "description": s
-                                }));
+            let mut attempts = 0;
+            let max_attempts = 3;
+            let mut success = false;
+
+            while attempts < max_attempts && !success {
+                attempts += 1;
+                match self
+                    .run_ai_stage(
+                        stage,
+                        system_prompt.clone(),
+                        clean_system_prompt.clone(),
+                        user_prompt.clone(),
+                        clean_user_prompt.clone(),
+                    )
+                    .await
+                {
+                    Ok((result_json, t_in, t_out, t_cached)) => {
+                        total_tokens_in += t_in;
+                        total_tokens_out += t_out;
+                        total_tokens_cached += t_cached;
+
+                        if let Some(concerns) =
+                            result_json.get("concerns").and_then(|c| c.as_array())
+                        {
+                            for c in concerns {
+                                if c.is_object() {
+                                    all_concerns.push(c.clone());
+                                } else if let Some(s) = c.as_str() {
+                                    all_concerns.push(serde_json::json!({
+                                        "type": "General",
+                                        "description": s
+                                    }));
+                                }
                             }
                         }
+                        success = true;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Stage {} failed (attempt {}/{}): {}",
+                            stage, attempts, max_attempts, e
+                        );
                     }
                 }
-                Err(e) => {
-                    warn!("Stage {} failed: {}", stage, e);
-                }
+            }
+            if !success {
+                warn!("Stage {} failed after {} attempts.", stage, max_attempts);
             }
         }
 

@@ -153,8 +153,10 @@ pub async fn prefetch_context(worktree_path: &Path, diff: &str) -> Result<String
                         .line_number(true)
                         .build();
 
-                    let _ = searcher.search_path(&matcher, &path, grep_searcher::sinks::UTF8(|line_num, line| {
-                        
+                    let _ = searcher.search_path(
+                        &matcher,
+                        &path,
+                        grep_searcher::sinks::UTF8(|line_num, line| {
                             for sym in &symbols {
                                 // Simple heuristic: does the line contain the symbol?
                                 // A more accurate way would be to run the specific symbol regex again, but this is fast.
@@ -165,8 +167,9 @@ pub async fn prefetch_context(worktree_path: &Path, diff: &str) -> Result<String
                                     }
                                 }
                             }
-                        Ok(true)
-                    }));
+                            Ok(true)
+                        }),
+                    );
                 }
                 ignore::WalkState::Continue
             })
