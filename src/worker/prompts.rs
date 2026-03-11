@@ -914,7 +914,7 @@ Example:
 
                 response_format: None,
                 context_tag: self.context_tag.as_ref().map(|prefix| {
-                    format!("{}s:{}] ", &prefix[..prefix.len() - 2], _stage)
+                    format!("{} s:{}] ", &prefix[..prefix.len() - 2], _stage)
                 }),
             };
 
