@@ -37,8 +37,12 @@ pub struct SmtpSettings {
     pub username: Option<String>,
     pub password: Option<String>,
     pub sender_address: String,
-    #[serde(default)]
+    #[serde(default = "default_dry_run")]
     pub dry_run: bool,
+}
+
+fn default_dry_run() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, Clone)]

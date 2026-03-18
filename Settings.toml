@@ -11,6 +11,18 @@ track = ["linux-kernel"]
 server = "nntp.lore.kernel.org"
 port = 119
 
+# [smtp]
+# **WARNING: BE VERY CAREFUL WHEN ENABLING EMAIL SENDING.**
+# Sashiko can easily generate and send a large volume of automated emails to
+# public mailing lists, potentially causing disruption or being marked as spam.
+# Ensure your filters and dry_run settings are correctly configured before use.
+# server = "smtp.example.com"
+# port = 587
+# username = "user@example.com"
+# password = "your_password"
+# sender_address = "sashiko@example.com"
+# dry_run = true
+
 [ai]
 provider = "gemini"
 model = "gemini-3.1-pro-preview"
