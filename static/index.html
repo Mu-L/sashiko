@@ -1868,6 +1868,7 @@
                     <div class="kv"><div class="label">Patches:</div><div>${data.received_parts || 0} / ${data.total_parts || 0}</div></div>
                     <div class="kv"><div class="label">Model:</div><div>${escapeHtml(providerModel)}</div></div>
                     <div class="kv"><div class="label">Prompts:</div><div>${escapeHtml(promptsHash)}</div></div>
+                    ${data.email_status ? `<div class="kv"><div class="label">Email Status:</div><div>${escapeHtml(data.email_status)}</div></div>` : ''}
                 </div>
                 
                 ${threadHtml ? `<div class="section">

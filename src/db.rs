@@ -2250,15 +2250,16 @@ impl Database {
         let mut rows = self
             .conn
             .query(
-                "SELECT p.id, p.subject, p.status, p.to_recipients, p.cc_recipients, 
+                "SELECT p.id, p.subject, p.status, p.to_recipients, p.cc_recipients,
                     p.author, p.date, p.cover_letter_message_id, p.thread_id,
                     p.total_parts, p.received_parts, p.failed_reason,
-                    p.model_name, p.prompts_git_hash, p.baseline_logs, p.baseline_id, p.provider
-             FROM patchsets p 
-             WHERE p.id = ?",
+                    p.model_name, p.prompts_git_hash, p.baseline_logs, p.baseline_id, p.provider,
+                    (SELECT status FROM email_outbox WHERE patch_id = p.id ORDER BY created_at DESC LIMIT 1) as email_status
+                FROM patchsets p
+                WHERE p.id = ?",
                 libsql::params![id],
-            )
-            .await?;
+                )
+                .await?;
 
         if let Ok(Some(row)) = rows.next().await {
             let pid: i64 = row.get(0)?;
@@ -2278,7 +2279,7 @@ impl Database {
             let baseline_logs: Option<String> = row.get(14).ok();
             let baseline_id: Option<i64> = row.get(15).ok();
             let provider: Option<String> = row.get(16).ok();
-
+            let email_status: Option<String> = row.get(17).ok();
             // Fetch baseline details if needed
             let baseline = if let Some(bid) = baseline_id {
                 let mut browse = self
@@ -2447,7 +2448,8 @@ impl Database {
                 "prompts_git_hash": prompts_git_hash,
                 "baseline_logs": baseline_logs,
                 "baseline": baseline,
-                "provider": provider
+                "provider": provider,
+                "email_status": email_status
             })))
         } else {
             Ok(None)
