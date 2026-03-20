@@ -761,28 +761,48 @@ Example:
                 "{}\n\nFindings:\n{}\n\nReturn raw text output, not JSON.",
                 clean_stage_prompt, findings_str
             );
+            let max_retries = 3;
             let mut retries = 0;
-            while retries < 3 {
-                if let Ok((result_text, t_in, t_out, t_cached)) = self
+            // On format rejection we augment the prompt rather than repeating
+            // it verbatim, so track the active prompt separately.
+            let mut active_user_prompt = user_prompt.clone();
+            let mut active_clean_user_prompt = clean_user_prompt.clone();
+            while retries < max_retries {
+                match self
                     .run_ai_stage_raw(
                         stage,
                         system_prompt.clone(),
                         clean_system_prompt.clone(),
-                        user_prompt.clone(),
-                        clean_user_prompt.clone(),
+                        active_user_prompt.clone(),
+                        active_clean_user_prompt.clone(),
                     )
                     .await
                 {
-                    total_tokens_in += t_in;
-                    total_tokens_out += t_out;
-                    total_tokens_cached += t_cached;
-
-                    review_inline_text = result_text.clone();
-                    match validate_inline_format(&result_text) {
-                        Ok(_) => break,
-                        Err(e) => {
-                            tracing::warn!("Stage 9 output validation failed: {}. Retrying...", e);
+                    Ok((result_text, t_in, t_out, t_cached)) => {
+                        total_tokens_in += t_in;
+                        total_tokens_out += t_out;
+                        total_tokens_cached += t_cached;
+                        match validate_inline_format(&result_text) {
+                            Ok(_) => {
+                                review_inline_text = result_text;
+                                break;
+                            }
+                            Err(violation) => {
+                                tracing::warn!(
+                                    "Stage 9 format validation failed (attempt {}/{}): {}. Retrying with augmented prompt.",
+                                    retries + 1, max_retries, violation
+                                );
+                                let reminder = format!(
+                                    "\n\nPrevious attempt was rejected: {violation}. Strictly follow the formatting rules."
+                                );
+                                active_user_prompt = format!("{}{}", user_prompt, reminder);
+                                active_clean_user_prompt =
+                                    format!("{}{}", clean_user_prompt, reminder);
+                            }
                         }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Stage 9 failed (attempt {}/{}): {}", retries + 1, max_retries, e);
                     }
                 }
                 retries += 1;
