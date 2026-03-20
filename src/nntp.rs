@@ -62,6 +62,37 @@ impl NntpClient {
         Ok(String::from_utf8_lossy(&buf).trim().to_string())
     }
 
+    pub async fn list(&mut self) -> Result<Vec<String>> {
+        self.send_command("LIST").await?;
+        let response = self.read_response().await?;
+
+        if !response.starts_with("215") {
+            return Err(anyhow!("Failed to retrieve list: {}", response));
+        }
+
+        let mut groups = Vec::new();
+        loop {
+            let mut buf = Vec::new();
+            let n = self.stream.read_until(b'\n', &mut buf).await?;
+            if n == 0 {
+                break; // EOF
+            }
+
+            let line_raw = String::from_utf8_lossy(&buf);
+            let line = line_raw.trim_end(); // remove \r\n
+
+            if line == "." {
+                break;
+            }
+
+            if let Some(group) = line.split_whitespace().next() {
+                groups.push(group.to_string());
+            }
+        }
+
+        Ok(groups)
+    }
+
     pub async fn group(&mut self, group_name: &str) -> Result<GroupInfo> {
         self.send_command(&format!("GROUP {}", group_name)).await?;
         let response = self.read_response().await?;

@@ -51,26 +51,71 @@ impl Ingestor {
         }
     }
 
-    fn get_tracked_groups(&self) -> Vec<(String, String)> {
-        self.settings
-            .mailing_lists
-            .track
-            .iter()
-            .map(|entry| {
-                if let Some((name, group)) = entry.split_once(':') {
-                    (name.to_string(), group.to_string())
-                } else if entry.contains('.') {
-                    (entry.clone(), entry.clone())
+    async fn get_tracked_groups(&self) -> Result<Vec<(String, String)>> {
+        let mut groups = Vec::new();
+        let mut available_groups: Option<Vec<String>> = None;
+
+        for entry in &self.settings.mailing_lists.track {
+            if let Some((name, group)) = entry.split_once(':') {
+                groups.push((name.to_string(), group.to_string()));
+            } else if entry.contains('.') {
+                groups.push((entry.clone(), entry.clone()));
+            } else {
+                // Heuristics for common lists
+                let mut resolved_group = None;
+
+                // Special case hardcoded mapping
+                if entry == "linux-mm" {
+                    resolved_group = Some("org.kvack.linux-mm".to_string());
                 } else {
-                    // Heuristics for common lists
-                    let group = match entry.as_str() {
-                        "linux-mm" => "org.kvack.linux-mm".to_string(),
-                        _ => format!("org.kernel.vger.{}", entry),
-                    };
-                    (entry.clone(), group)
+                    // Fetch available groups if we haven't already
+                    if available_groups.is_none() {
+                        match NntpClient::connect(
+                            &self.settings.nntp.server,
+                            self.settings.nntp.port,
+                        )
+                        .await
+                        {
+                            Ok(mut client) => match client.list().await {
+                                Ok(list) => available_groups = Some(list),
+                                Err(e) => warn!(
+                                    "Failed to fetch NNTP group list for dynamic resolution: {}",
+                                    e
+                                ),
+                            },
+                            Err(e) => {
+                                warn!("Failed to connect to NNTP for dynamic resolution: {}", e)
+                            }
+                        }
+                    }
+
+                    // Try to find a group that ends with .entry
+                    if let Some(list) = &available_groups {
+                        let suffix = format!(".{}", entry);
+                        if let Some(found) = list.iter().find(|g| g.ends_with(&suffix)) {
+                            info!(
+                                "Dynamically resolved short name '{}' to NNTP group '{}'",
+                                entry, found
+                            );
+                            resolved_group = Some(found.clone());
+                        }
+                    }
                 }
-            })
-            .collect()
+
+                // Fallback to old vger default if resolution failed
+                let group = resolved_group.unwrap_or_else(|| {
+                    let fallback = format!("org.kernel.vger.{}", entry);
+                    warn!(
+                        "Could not dynamically resolve NNTP group for '{}', falling back to '{}'",
+                        entry, fallback
+                    );
+                    fallback
+                });
+
+                groups.push((entry.clone(), group));
+            }
+        }
+        Ok(groups)
     }
 
     pub async fn run(&self) -> Result<()> {
@@ -94,7 +139,7 @@ impl Ingestor {
     }
 
     async fn run_git_bootstrap(&self, limit: usize) -> Result<()> {
-        let groups = self.get_tracked_groups();
+        let groups = self.get_tracked_groups().await?;
         if groups.is_empty() {
             return Ok(());
         }
@@ -312,7 +357,7 @@ impl Ingestor {
         Ok(())
     }
     async fn run_nntp(&self) -> Result<()> {
-        let groups = self.get_tracked_groups();
+        let groups = self.get_tracked_groups().await?;
         info!("Starting NNTP Ingestor for groups: {:?}", groups);
 
         loop {
@@ -327,7 +372,7 @@ impl Ingestor {
         let mut client =
             NntpClient::connect(&self.settings.nntp.server, self.settings.nntp.port).await?;
 
-        for (name, group_name) in self.get_tracked_groups() {
+        for (name, group_name) in self.get_tracked_groups().await? {
             let group_name = &group_name;
             self.db.ensure_mailing_list(&name, group_name).await?;
 
