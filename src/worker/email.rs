@@ -103,7 +103,7 @@ impl EmailWorker {
             .body(email_row.body.clone())?;
 
         let mut mailer_builder =
-            AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&self.settings.server)
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&self.settings.server)?
                 .port(self.settings.port);
 
         if let (Some(user), Some(pass)) = (&self.settings.username, &self.settings.password) {
