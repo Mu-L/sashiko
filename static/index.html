@@ -1026,7 +1026,9 @@
             try {
                 const res = await fetch('/api/lists');
                 if (res.ok) {
-                    state.mailingLists = await res.json();
+                    const lists = await res.json();
+                    lists.sort((a, b) => a.name.localeCompare(b.name));
+                    state.mailingLists = lists;
                 }
             } catch (e) {
                 console.error("Failed to fetch mailing lists", e);
