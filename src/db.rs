@@ -1749,7 +1749,7 @@ impl Database {
             // Relaxed author check logic
             let author_match = crate::patch::extract_email(&existing_author)
                 == crate::patch::extract_email(author);
-            let series_match = total_parts > 1 && total_parts == existing_total;
+            let series_match = (total_parts > 1 && total_parts == existing_total) || existing_total == 1 || total_parts == 1;
 
             let author_or_series_match = if strict_author {
                 author_match
@@ -1770,7 +1770,7 @@ impl Database {
             if author_or_series_match
                 && (!strict_author || (date - existing_date).abs() < 86400)
                 && (versions_compatible || same_thread)
-                && total_parts == existing_total
+                && (total_parts == existing_total || existing_total == 1 || total_parts == 1)
                 && subject_match
                 && prefix_match
                 && !index_collision
