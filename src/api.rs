@@ -401,14 +401,18 @@ async fn submit_patch(
         }
         SubmitRequest::Thread { msgid } => {
             let id = generate_synthetic_id("thread");
-            info!("Received thread fetch request: {} (msgid: {})", id, msgid);
+            let clean_msgid = msgid.trim_matches(|c| c == '<' || c == '>').to_string();
+            info!(
+                "Received thread fetch request: {} (msgid: {})",
+                id, clean_msgid
+            );
 
             // Create a placeholder record in the DB so the user can track status
             if let Err(e) = state
                 .db
                 .create_fetching_patchset(
-                    &msgid, // Or &id? msgid is cleaner for display
-                    &format!("Fetching thread {}...", msgid),
+                    &clean_msgid,
+                    &format!("Fetching thread {}...", clean_msgid),
                     None,
                     None,
                 )
@@ -418,12 +422,18 @@ async fn submit_patch(
                 // Non-fatal, just continue
             }
 
-            let msgid_clone = msgid.clone();
+            let msgid_clone = clean_msgid.clone();
             let sender = state.sender.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = fetch_and_inject_thread(&msgid_clone, sender).await {
+                if let Err(e) = fetch_and_inject_thread(&msgid_clone, sender.clone()).await {
                     tracing::error!("Failed to fetch thread {}: {}", msgid_clone, e);
+                    let _ = sender
+                        .send(Event::IngestionFailed {
+                            article_id: msgid_clone.clone(),
+                            error: format!("Failed to fetch thread: {}", e),
+                        })
+                        .await;
                 }
             });
 
