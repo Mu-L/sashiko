@@ -297,7 +297,11 @@ fn normalize_schema(mut schema: Value) -> Value {
     schema
 }
 
-fn translate_ai_request(request: AiRequest, max_tokens: u32, provider_type: OpenAiProviderType) -> Result<OpenAiRequest> {
+fn translate_ai_request(
+    request: AiRequest,
+    max_tokens: u32,
+    provider_type: OpenAiProviderType,
+) -> Result<OpenAiRequest> {
     let mut messages = Vec::new();
 
     if let Some(system_text) = request.system {
@@ -383,7 +387,10 @@ fn translate_ai_request(request: AiRequest, max_tokens: u32, provider_type: Open
 
     // OpenAI requires the word "json" to appear in at least one message when
     // using response_format: json_object. Inject it if missing.
-    if response_format.as_ref().is_some_and(|rf| rf["type"] == "json_object") {
+    if response_format
+        .as_ref()
+        .is_some_and(|rf| rf["type"] == "json_object")
+    {
         let has_json = messages.iter().any(|m| {
             m.content
                 .as_ref()

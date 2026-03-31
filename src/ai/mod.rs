@@ -208,9 +208,7 @@ pub fn create_provider(settings: &Settings) -> Result<Arc<dyn AiProvider>> {
                 .as_ref()
                 .and_then(|c| c.base_url.clone())
                 .unwrap_or_else(|| {
-                    openai::OpenAiCompatClient::default_base_url_for_model(
-                        &settings.ai.model,
-                    )
+                    openai::OpenAiCompatClient::default_base_url_for_model(&settings.ai.model)
                 });
 
             let context_window = settings
@@ -219,9 +217,7 @@ pub fn create_provider(settings: &Settings) -> Result<Arc<dyn AiProvider>> {
                 .as_ref()
                 .and_then(|c| c.context_window_size)
                 .unwrap_or_else(|| {
-                    openai::OpenAiCompatClient::default_context_window_for_model(
-                        &settings.ai.model,
-                    )
+                    openai::OpenAiCompatClient::default_context_window_for_model(&settings.ai.model)
                 });
 
             let max_tokens = settings
