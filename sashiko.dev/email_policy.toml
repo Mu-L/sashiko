@@ -14,3 +14,10 @@ mute_all = true
 
 # A list of static email addresses that should always receive a copy (CC'd).
 cc = []
+
+[subsystems.hwmon]
+lists = ["linux-hwmon@vger.kernel.org"]
+reply_all = false
+reply_to_author = false
+cc_maintainers = false
+cc = ["linux@roeck-us.net", "roman.gushchin@linux.dev"]
