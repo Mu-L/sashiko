@@ -66,6 +66,7 @@ regexes
 | Objtool | tools/objtool/, INSN_BUG, INSN_TRAP, decode.c | objtool.md |
 | KHO (Kexec Handover) | lib/test_kho.c, kho_, kho_is_enabled, kho_retrieve_subtree, kho_preserve_folio, kho_add_subtree, register_kho_notifier | kho.md |
 | I2C | drivers/i2c/, i2c_*, | i2c.md |
+| Rust | any Rust code | rust.md |
 
 ## Optional Patterns
 

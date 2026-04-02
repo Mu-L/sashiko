@@ -22,7 +22,7 @@ archaeology
 
 ## Finding the Fixed Commit
 
-If this is a bug fix, search git history, using `git_log` or `git_blame`, find
+If this is a bug fix, search git history, either with semcode or git log, find
 the commit being fixed.
 
 If you're able to identify a commit being fixed, create a suggested Fixes:
@@ -42,7 +42,7 @@ Fixes: 54a4f0239f2e ("KVM: MMU: make kvm_mmu_zap_page() return the number of pag
 ```
 
 In this case, consider the missing Fixes tag a regression, and make sure it
-gets added into the `review_inline` field.  Explain how the commit being reviewed
+gets added into review-inline.txt.  Explain how the commit being reviewed
 fixes the commit identified.
 
 ## If no fixed commit can be identified

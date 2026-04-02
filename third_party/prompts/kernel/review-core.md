@@ -60,6 +60,7 @@ IMMEDIATELY.
 - Discard non-essential details after each task to manage token limits
   - Don't discard function or type context if you'll use it later on
 - Exception: Keep all context for Task 4 reporting if regressions found
+- Report any context obtained outside semcode MCP tools
 
 1. Plan your initial context gathering phase after finding the diff and before making any additional tool calls
    - Before gathering context
@@ -68,7 +69,7 @@ IMMEDIATELY.
        gathering.
      - Never just read the commit message and jump ahead.  This is an in depth
        analysis, and you're expected to proceed systematically through the changes
-     - If you find suspect bugs, make a note of them, but do not begin
+     - If you find suspect bugs, place them into a TodoWrite, but do not begin
        full analysis until you've started Task 2.
      - Document the commit's intent before analyzing patterns
    - Classify the kinds of changes introduced by the diff
@@ -80,23 +81,29 @@ IMMEDIATELY.
 
 ### TASK 1: Context Gathering []
 **Goal**: Build complete understanding of changed code
-1. **Using available tools**:
-   - Identify changed functions and types.
-   - Use `search_file_content` (grep) or `read_files` to find definitions for all identified items.
-   - Trace call relationships manually using search tools.
+1. **Using semcode MCP (preferred)**:
+   - `diff_functions`: identify changed functions and types
+   - `find_function/find_type`: get definitions for all identified items
+     - both of these accept a regex for the name, use this before grepping through the sources for definitions
+   - `find_callchain`: trace call relationships
      - spot check call relationships, especially to understand proper API usage
      - use arguments to limit callchain depth up and/or down.
-   - Check callers (who calls X) / callees (what does X call):
+   - `find_callers` (who calls X) / `find_calls` (what does X call):
      - Check at least one level up and one level down, more if needed.
      - spot check other call relationships as required
      - Always trace cleanup paths and error handling
-   - `search_file_content`: search function bodies for regex patterns.
+   - `grep_functions`: search function bodies for regex patterns.
+     - returns matching lines by default (verbose=false).  When verbose=true is used, also returns entire function body
+     - use verbose=false first to find matching lines, then use semcode find_function to pull in functions you're interested in
+     - use verbose=true only with detailed regexes where you want full function bodies for every result
+     - can return a huge number of results, use path regex option to limit results to avoid avoid filling context
      - searches inside of function bodies.  Don't try to do multi-line greps,
        don't try to add curly brackets to limit the result inside of functions
-   - If the current commit has deleted a function, you may need to search the parent commit using git tools.
+   - If the current commit has deleted a function, semcode won't be able to
+     find it unless you search the parent commit.
 
-2. **Analysis**:
-   - Use git diff (provided) to identify changes
+2. **Without semcode (fallback)**:
+   - Use git diff to identify changes
    - Manually find function definitions and relationships with grep and other tools
    - Document any missing context that affects research quality
 
@@ -123,7 +130,7 @@ This deep dive analysis will take a long time, don't skip steps.
   - resource management: allocations, frees
   - resource management: object initialization
   - locking
-- Add each category and the modified, new, or deleted functions into your notes.
+- Add each category and the modified, new, or deleted functions into TodoWrite
 - These categories will be referenced by the pattern prompts.  Call them
   CHANGE-1, CHANGE-2, etc.  The prompts will call them CHANGE CATEGORIES
 - You'll need to repeat pattern analysis for each of the categories identified.
@@ -145,6 +152,22 @@ This deep dive analysis will take a long time, don't skip steps.
 
 2. Using the context loaded, and any additional context you need, analyze
 the change for regressions.
+
+3. If semcode lore is available, check for email discussion about this patch
+  - Load `lore-thread.md` for detailed instructions on processing lore threads
+  - Search lore for threads with the same subject as this patch, assume
+    the patch you're reviewing is the latest version.
+  - Consider any unaddressed comments as potential regressions
+    - Add each unaddressed comment to TodoWrite
+    - Verify each unaddressed comment as a valid complaint before reporting
+  - Output: subject lines and dates of past versions of the patch
+    ```
+    FINAL UNADDRESSED COMMENTS: NUMBER
+    Found older version: <date> <version> <subject>
+    Found older version: <date> <version2> <subject>
+    ```
+  - When the regression report mentions unaddressed review comments, provide
+    a lore link to the thread in review-inline.txt
 
 ### TASK 2.1 Commit tag verification
 
@@ -184,10 +207,10 @@ Fixes tag check for <subsystem>
 3. If you decided to look for Fixes: tags
   - Load ./missing-fixes-tag.md to check for missing Fixes: tags for this commit.
   - If a missing fixes tag was flagged, consider it a full regression and
-    create review-inline, even if no other regressions were found.
+    create review-inline.txt, even if no other regressions were found.
   - There's no need to run the false-positive-guide.md if the only regression
     found was the missing Fixes: tag
-  - Fixes: tag present in other sources doesn't count if it isn't in
+  - Fixes: tag present in lore searches doesn't count if it isn't in
     the commit being reviewed.
   - Output: Fixes: tag missing yes/no
 
@@ -211,32 +234,72 @@ IMPORTANT: subjective issues flagged by SR-* patterns count as regressions
 - Mark complete and provide summary
 - Note any context limitations
 
+This step must not be skipped if there are regressions found.  You're creating
+a text file to be sent to the linux kernel mailing list.  It is absolutely
+CRITICAL this text file meets the standards of linux kernel communications
+as defined in inline-template.md.  If you fail to follow those instructions,
+the review is completely useless.
+
 **If regressions found**:
 0. Clear any context not related to the regressions themselves
 1. Load `inline-template.md`
   - you must use inline-template.md for all analysis feedback
-2. Prepare the `review_inline` content.
+2. Create `review-inline.txt` in current directory, never use the prompt directory
 3. Follow the instructions in the template carefully
-  - NEVER WRITE `REGRESSION:` INTO review_inline. THIS
+  - NEVER WRITE `REGRESSION:` INTO ./review-inline.txt THIS
     AND ANY OTHER ALL CAPS ANALYSIS IS INCOMPATIBLE WITH LINUX KERNEL STANDARDS
 4. Never include bugs that you identified as false positives in the report
-5. Verify the review_inline content follows inline-template.md's guidelines
+5. Verify the ./review-inline.txt file exists if regressions are found
+6. Verify the ./review-inline.txt file follows inline-template.md's guidelines
 
 ### MANDATORY COMPLETION VERIFICATION
 
-Check your `review_inline` content and confirm it looks like the inline-template.md
+Check ./review-inline.txt and confirm it looks like the inline-template.md
 
 Your default commentary output is unfit for kernel reviews and analysis.
-Content MUST follow inline-template.md. Do not include markdown, ALL CAPS, or
-break inline-template.md's guidelines.
+Confirm review-inline.txt follows inline-template.md, regenerate it if you've
+snuck in markdown, ALL CAPS, or somehow broken with inline-template.md's
+guidelines.
 
-### Task 6 Generate Final Findings
+## OUTPUT FORMAT
+Always conclude with:
+- Output: `FINAL REGRESSIONS FOUND: <number>`
+- Output: `FINAL TOKENS USED: <total tokens used in the entire session>`
+ - Output: `Assisted-by: <LLM agent name>:<LLM model version>`
+- Output: Any false positives eliminated
 
-Populate the `findings` list in the final JSON output.
-Identify an issue severity score "low", "medium", "high", "critical" for anything
-reported.
+### Task 5 Review metadata output
 
-Populate the `review_inline` field with the content generated in Task 4.
-Populate the `summary` field with a high-level summary of the change.
+Create a json file in the current directory named ./review-metadata.json
 
-Do NOT create any external files. Use the provided JSON schema for output.
+Identify an issue severity score "low", "medium", "high", "urgent" for anything
+reported in ./review-inline.txt. Scores would increase in severity based on
+user-visible errors such as system crashes, instability, security problems, or
+incorrect system behavior.
+
+Create a one sentence explanation for your issue severity score.  If there are no
+issues, just use "none"
+
+If there are multiple issues, just pick the most severe, or consider the combination
+of their overall implications.
+
+The file should be created for every analysis, even if bugs were not found.
+If the file already exists, it should be completely replaced.
+
+./review-metadata.json will be parsed by other programs.
+
+CRITICAL: DO NOT INVENT OTHER FIELDS FOR ./review-metadata.json.  IT MUST HAVE
+THESE EXACT FIELDS IN THIS EXACT FORMAT.  DEVIATION IS NOT ALLOWED.
+
+```json
+{
+  "author": "<string commit author>",
+  "sha": "<string sha of the commit>",
+  "subject": "<string commit subject>",
+  "issues-found": <number>,
+  "issue-severity-score": "<none/low/medium/high/urgent>",
+  "issue-severity-explanation": "<string, result of Task 5 analysis>"
+}
+```
+
+- Ensure ./review-metadata.json exists and has the correct format

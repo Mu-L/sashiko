@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# Claude Code setup for Linux kernel development
+# Codex setup for Linux kernel development
 #
 # Installs:
-#   - Kernel skill to ~/.claude/skills/kernel/SKILL.md
-#   - Slash commands to ~/.claude/commands/
+#   - Kernel skill to ~/.codex/.agents/skills/kernel/SKILL.md
+#   - Slash commands to ~/.codex/.agents/
 #
 # The prompts directory is determined from this script's location.
 
@@ -21,8 +21,8 @@ echo ""
 
 # --- Install Skill ---
 
-SKILL_DIR="$HOME/.claude/skills/kernel"
-SKILL_FILE="$SKILL_DIR/SKILL.md"
+SKILL_DIR="$HOME/.codex/.agents/skills/kernel"
+SKILL_FILE="$SKILL_DIR/AGENTS.md"
 SOURCE_SKILL="$PROMPTS_DIR/skills/kernel.md"
 
 if [ ! -f "$SOURCE_SKILL" ]; then
@@ -39,7 +39,7 @@ echo "  $SKILL_FILE"
 
 # --- Install Slash Commands ---
 
-COMMANDS_DIR="$HOME/.claude/commands"
+COMMANDS_DIR="$HOME/.codex/prompts"
 SLASH_COMMANDS_SRC="$PROMPTS_DIR/slash-commands"
 
 if [ ! -d "$SLASH_COMMANDS_SRC" ]; then
@@ -63,8 +63,7 @@ echo ""
 echo "Setup complete!"
 echo ""
 echo "Available commands:"
-echo "  /kreview    - Review a single commit for regressions"
-echo "  /kseries    - Review an entire patch series (git range) commit-by-commit"
+echo "  /kreview    - Review commits for regressions"
 echo "  /korcreview - Deep dive regression analysis using ORC agent"
 echo "  /kdebug     - Debug kernel crashes and warnings"
 echo "  /kverify    - Verify findings against false positive patterns"

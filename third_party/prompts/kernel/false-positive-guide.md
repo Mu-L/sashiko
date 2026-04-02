@@ -175,8 +175,6 @@ the dismissal is invalid. Report the race.
 - Simplicity/maintainability was prioritized
 - It's optimizing for a different use case
 
-**ONLY REPORT**: if the performance degradation is significant and clearly unintentional.
-
 ### 10. Intentional backwards compatibility
 - Leaving stub sysfs or procfs files is not required, and also not a regression
 - It is not a regression for deprecated sysfs files to remain and just return
@@ -385,7 +383,7 @@ Before reporting ANY regression, verify:
        callstack.md "Reachability Dismissals".
    - 10.2 Now pretend you're the reviewer. Think extremely hard about the author's arguments and decide if the review is correct.
      - Address each author argument with code evidence
-     - Output: code evidence or strong logical reasoning refuting the author, or "cannot refute - likely false positive"
+     - Output: code evidence refuting the author, or "cannot refute with code - likely false positive"
 
 ### Mandatory Validation
 
@@ -435,7 +433,7 @@ Before adding to report, think about the regression and ask:
     definitely enter that state.
 2. **Would an expert see this as a real issue?** [ yes / no ]
 3. **Is this worth the maintainer's time?** [ yes / no ]
-4. **Is this a genuine bug, not just a defensive programming preference?** [ yes / no ]
+4. **Am I suggesting defensive programming, or reporting a concrete bug?** [ yes / no ]
   - Defensive programming: "add a NULL check here for safety" → discard
   - Concrete bug: "this wait_event has no timeout and no fallback wake" → report
 
