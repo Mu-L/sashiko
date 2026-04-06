@@ -176,21 +176,20 @@ impl Ingestor {
                         {
                             error!("Failed to bootstrap group {} epoch {}: {}", group, epoch, e);
                             continue;
-                        } else {
-                            match self
-                                .ingest_git_objects(&group, &epoch_path, Some(group_remaining))
-                                .await
-                            {
-                                Ok(count) => {
-                                    info!("Ingested {} messages from epoch {}", count, epoch);
-                                    group_remaining = group_remaining.saturating_sub(count);
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "Failed to ingest objects for group {} epoch {}: {}",
-                                        group, epoch, e
-                                    );
-                                }
+                        }
+                        match self
+                            .ingest_git_objects(&group, &epoch_path, Some(group_remaining))
+                            .await
+                        {
+                            Ok(count) => {
+                                info!("Ingested {} messages from epoch {}", count, epoch);
+                                group_remaining = group_remaining.saturating_sub(count);
+                            }
+                            Err(e) => {
+                                error!(
+                                    "Failed to ingest objects for group {} epoch {}: {}",
+                                    group, epoch, e
+                                );
                             }
                         }
                     }

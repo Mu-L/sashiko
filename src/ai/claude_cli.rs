@@ -33,7 +33,9 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use crate::ai::{AiProvider, AiRequest, AiResponse, AiRole, AiUsage, ProviderCapabilities, ToolCall};
+use crate::ai::{
+    AiProvider, AiRequest, AiResponse, AiRole, AiUsage, ProviderCapabilities, ToolCall,
+};
 
 pub struct ClaudeCliProvider {
     pub model: String,
@@ -87,15 +89,27 @@ impl AiProvider for ClaudeCliProvider {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("claude CLI exited with {}: {}", output.status, stderr.trim());
+            anyhow::bail!(
+                "claude CLI exited with {}: {}",
+                output.status,
+                stderr.trim()
+            );
         }
 
         let raw = String::from_utf8_lossy(&output.stdout);
-        let outer: Value = serde_json::from_str(&raw)
-            .map_err(|e| anyhow::anyhow!("Failed to parse claude CLI JSON output: {}\nRaw: {}", e, &raw[..raw.len().min(200)]))?;
+        let outer: Value = serde_json::from_str(&raw).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to parse claude CLI JSON output: {}\nRaw: {}",
+                e,
+                &raw[..raw.len().min(200)]
+            )
+        })?;
 
         if outer["is_error"].as_bool().unwrap_or(false) {
-            anyhow::bail!("claude CLI returned error: {}", outer["result"].as_str().unwrap_or("unknown error"));
+            anyhow::bail!(
+                "claude CLI returned error: {}",
+                outer["result"].as_str().unwrap_or("unknown error")
+            );
         }
 
         let result_text = outer["result"].as_str().unwrap_or("").trim().to_string();
@@ -108,7 +122,9 @@ impl AiProvider for ClaudeCliProvider {
     }
 
     fn estimate_tokens(&self, request: &AiRequest) -> usize {
-        let chars: usize = request.messages.iter()
+        let chars: usize = request
+            .messages
+            .iter()
             .filter_map(|m| m.content.as_ref())
             .map(|c| c.len())
             .sum();
@@ -175,24 +191,24 @@ pub fn build_prompt(request: &AiRequest) -> String {
     }
 
     // Tool definitions and response instructions
-    if let Some(tools) = &request.tools {
-        if !tools.is_empty() {
-            out.push_str("<available_tools>\n");
-            for tool in tools {
-                out.push_str(&format!(
-                    "- name: {}\n  description: {}\n  parameters: {}\n\n",
-                    tool.name, tool.description, tool.parameters
-                ));
-            }
-            out.push_str("</available_tools>\n\n");
-            out.push_str(
-                "RESPONSE FORMAT: You MUST respond with a SINGLE valid JSON object only (no markdown, no explanation).\n\
-                 To call tools: {\"tool_calls\": [{\"id\": \"c1\", \"function_name\": \"TOOL_NAME\", \"arguments\": {ARGS}}, {\"id\": \"c2\", \"function_name\": \"OTHER_TOOL\", \"arguments\": {ARGS2}}]}\n\
-                 Put ALL tool calls in ONE tool_calls array. Do NOT output multiple JSON objects.\n\
-                 For your final answer: {\"content\": \"YOUR RESPONSE\"}\n\
-                 Do not mix both. Output exactly one JSON object.\n",
-            );
+    if let Some(tools) = &request.tools
+        && !tools.is_empty()
+    {
+        out.push_str("<available_tools>\n");
+        for tool in tools {
+            out.push_str(&format!(
+                "- name: {}\n  description: {}\n  parameters: {}\n\n",
+                tool.name, tool.description, tool.parameters
+            ));
         }
+        out.push_str("</available_tools>\n\n");
+        out.push_str(
+            "RESPONSE FORMAT: You MUST respond with a SINGLE valid JSON object only (no markdown, no explanation).\n\
+             To call tools: {\"tool_calls\": [{\"id\": \"c1\", \"function_name\": \"TOOL_NAME\", \"arguments\": {ARGS}}, {\"id\": \"c2\", \"function_name\": \"OTHER_TOOL\", \"arguments\": {ARGS2}}]}\n\
+             Put ALL tool calls in ONE tool_calls array. Do NOT output multiple JSON objects.\n\
+             For your final answer: {\"content\": \"YOUR RESPONSE\"}\n\
+             Do not mix both. Output exactly one JSON object.\n",
+        );
     }
 
     out
@@ -228,7 +244,9 @@ pub fn parse_inner_response(text: &str, usage: Option<AiUsage>) -> Result<AiResp
     let mut had_json = false;
     for line in json_str.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
         if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
             had_json = true;
             if let Some(calls) = v["tool_calls"].as_array() {
@@ -242,7 +260,10 @@ pub fn parse_inner_response(text: &str, usage: Option<AiUsage>) -> Result<AiResp
     }
 
     if !merged_tool_calls.is_empty() {
-        debug!("claude-cli: merged {} tool calls from JSONL response", merged_tool_calls.len());
+        debug!(
+            "claude-cli: merged {} tool calls from JSONL response",
+            merged_tool_calls.len()
+        );
         return Ok(AiResponse {
             content: None,
             thought: None,
@@ -287,10 +308,7 @@ fn parse_tool_call(c: &Value) -> Option<ToolCall> {
 fn parse_single_json(v: &Value, json_str: &str, usage: Option<AiUsage>) -> Result<AiResponse> {
     // Tool calls?
     if let Some(calls) = v["tool_calls"].as_array() {
-        let tool_calls: Vec<ToolCall> = calls
-            .iter()
-            .filter_map(|c| parse_tool_call(c))
-            .collect();
+        let tool_calls: Vec<ToolCall> = calls.iter().filter_map(parse_tool_call).collect();
 
         if !tool_calls.is_empty() {
             return Ok(AiResponse {

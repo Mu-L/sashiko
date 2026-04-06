@@ -399,11 +399,12 @@ mod tests {
 
     #[test]
     fn test_json_document_roundtrip() {
+        let pi_value = std::f64::consts::PI;
         let original = json!({
             "name": "test",
             "count": 42,
             "negative": -7,
-            "ratio": 3.14,
+            "ratio": pi_value,
             "active": true,
             "nothing": null,
             "tags": ["a", "b"],

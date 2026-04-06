@@ -25,8 +25,8 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use crate::ai::{AiProvider, AiRequest, AiResponse, AiUsage, ProviderCapabilities};
 use super::claude_cli::{build_prompt, parse_inner_response};
+use crate::ai::{AiProvider, AiRequest, AiResponse, AiUsage, ProviderCapabilities};
 
 pub struct CodexCliProvider {
     pub model: String,
@@ -45,8 +45,10 @@ impl AiProvider for CodexCliProvider {
             .args([
                 "exec",
                 "--json",
-                "--sandbox", "read-only",
-                "-m", &self.model,
+                "--sandbox",
+                "read-only",
+                "-m",
+                &self.model,
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

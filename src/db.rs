@@ -1083,6 +1083,7 @@ impl Database {
 
         let mut rows = self.conn.query(sql, ()).await?;
         let mut stats = Vec::new();
+        #[allow(clippy::similar_names)]
         while let Ok(Some(row)) = rows.next().await {
             let provider: Option<String> = row.get(0).ok();
             let model: Option<String> = row.get(1).ok();
@@ -2397,6 +2398,7 @@ impl Database {
                     libsql::params![pid, limit_val, offset_val],
                 )
                 .await?;
+            #[allow(clippy::similar_names)]
             while let Ok(Some(p)) = patch_rows.next().await {
                 let p_id: i64 = p.get(0)?;
                 patch_ids.push(p_id);

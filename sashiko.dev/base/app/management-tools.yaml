@@ -58,8 +58,8 @@ spec:
       - name: main
         image: google/cloud-sdk:alpine
         command: ["/bin/sh", "-c"]
-        args: 
-          - |
+        args:
+        - |
             /usr/local/bin/setup-env.sh;
             echo "Management Service Live. Waiting for commands...";
             sleep infinity;
@@ -104,7 +104,10 @@ spec:
           containers:
           - name: backup-worker
             image: google/cloud-sdk:alpine
-            command: ["/bin/sh", "-c", "/usr/local/bin/setup-env.sh && /usr/local/bin/backup-db.sh"]
+            command:
+            - "/bin/sh"
+            - "-c"
+            - "/usr/local/bin/setup-env.sh && /usr/local/bin/backup-db.sh"
             volumeMounts:
             - name: sashiko-storage
               mountPath: /data

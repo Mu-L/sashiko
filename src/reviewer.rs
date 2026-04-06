@@ -836,24 +836,23 @@ impl Reviewer {
                         patch_commits,
                         logs_json,
                     );
-                } else {
-                    // Fallback if DB insert fails, though unlikely
-                    // We still return success but maybe log error.
-                    // We do not continue loop as application succeeded.
-                    // Just return success without ID.
-                    // This path is tricky. Let's assume ID creation works or we fail this attempt.
-                    // If we fail, we clean up.
-                    // For now, let's treat it as success but maybe missing ID is fatal for `Some` return.
-                    // But `create_baseline` returns Result<i64>.
-                    // If it fails, we can't associate baseline.
-                    // Let's count it as failure.
-                    // Re-push attempt with failure.
-                    // Actually we already pushed "Applied".
-                    // Let's modify the last attempt status if we can't save to DB.
-                    if let Some(last) = attempts.last_mut() {
-                        last.status = "DB Error".to_string();
-                        last.log.push_str("Failed to record baseline in DB.\n");
-                    }
+                }
+                // Fallback if DB insert fails, though unlikely
+                // We still return success but maybe log error.
+                // We do not continue loop as application succeeded.
+                // Just return success without ID.
+                // This path is tricky. Let's assume ID creation works or we fail this attempt.
+                // If we fail, we clean up.
+                // For now, let's treat it as success but maybe missing ID is fatal for `Some` return.
+                // But `create_baseline` returns Result<i64>.
+                // If it fails, we can't associate baseline.
+                // Let's count it as failure.
+                // Re-push attempt with failure.
+                // Actually we already pushed "Applied".
+                // Let's modify the last attempt status if we can't save to DB.
+                if let Some(last) = attempts.last_mut() {
+                    last.status = "DB Error".to_string();
+                    last.log.push_str("Failed to record baseline in DB.\n");
                 }
             } else {
                 current_log.push_str(&apply_logs);
@@ -1267,9 +1266,8 @@ impl Reviewer {
                         if retries < max_retries {
                             retries += 1;
                             continue;
-                        } else {
-                            return Ok(PatchResult::ReviewFailed);
                         }
+                        return Ok(PatchResult::ReviewFailed);
                     }
                 }
                 Err(e) => {

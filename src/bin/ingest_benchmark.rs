@@ -60,7 +60,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let entries: Vec<BenchmarkEntry> = serde_json::from_reader(reader)?;
 
     let client = Client::new();
-    let repo_url = args.repo.as_deref()
+    let repo_url = args
+        .repo
+        .as_deref()
         .unwrap_or("https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git");
 
     println!("Found {} entries to process", entries.len());
