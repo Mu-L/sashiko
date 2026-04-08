@@ -256,6 +256,25 @@ pub mod quota;
 pub mod token_budget;
 pub mod truncator;
 
+/// Recursively removes `thought_signature` and `thoughtSignature` fields from a JSON value.
+pub fn scrub_thought_signatures(val: &mut serde_json::Value) {
+    match val {
+        serde_json::Value::Object(map) => {
+            map.remove("thought_signature");
+            map.remove("thoughtSignature");
+            for (_, v) in map.iter_mut() {
+                scrub_thought_signatures(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                scrub_thought_signatures(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1025,7 +1025,9 @@ impl Reviewer {
 
                     let history = json_output.get("history");
                     let logs_str = if let Some(h) = history {
-                        serde_json::to_string_pretty(h).ok()
+                        let mut scrubbed = h.clone();
+                        crate::ai::scrub_thought_signatures(&mut scrubbed);
+                        serde_json::to_string_pretty(&scrubbed).ok()
                     } else {
                         None
                     };
