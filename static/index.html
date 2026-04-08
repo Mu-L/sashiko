@@ -1501,10 +1501,6 @@
                 const res = await fetch('/api/stats');
                 const data = await res.json();
                 state.stats = data;
-                const b = data.breakdown || {};
-                
-                // Calculate In Progress (Reviewing)
-                const inProgress = (b.reviewing || 0);
 
                 document.getElementById('stats').outerHTML = `
                     <div class="stats-container" id="stats">
@@ -1516,31 +1512,11 @@
                             <a href="#/stats" style="font-weight:500;">Stats</a>
                         </div>
                         <div class="stats-sep"></div>
-                        <div class="stats-group">
-                            <span class="stats-val">${data.patchsets}</span> Patchsets
-                            <span class="stats-sub">(${data.messages} msgs)</span>
+                        <div class="stats-group" title="Pending patches to review">
+                            <span class="status-dot status-Pending"></span> ${data.pending || 0} Pending
                         </div>
-                        <div class="stats-sep"></div>
-                        <div class="stats-group" title="Pending">
-                            <span class="status-dot status-Pending"></span> ${b.pending || 0}
-                        </div>
-                        <div class="stats-group" title="In Review">
-                            <span class="status-dot status-InReview"></span> ${inProgress}
-                        </div>
-                        <div class="stats-group" title="Reviewed">
-                            <span class="status-dot status-Reviewed"></span> ${b.reviewed || 0}
-                        </div>
-                        <div class="stats-group" title="Failed To Apply">
-                            <span class="status-dot status-FailedToApply"></span> ${b.failed_to_apply || 0}
-                        </div>
-                        <div class="stats-group" title="Failed">
-                            <span class="status-dot status-Failed"></span> ${b.failed || 0}
-                        </div>
-                        <div class="stats-group" title="Incomplete (waiting for parts)">
-                            <span class="status-dot status-Incomplete"></span> ${b.incomplete || 0}
-                        </div>
-                         <div class="stats-group" title="Cancelled">
-                            <span class="status-dot status-Cancelled"></span> ${b.cancelled || 0}
+                        <div class="stats-group" title="Patches currently in review">
+                            <span class="status-dot status-InReview"></span> ${data.reviewing || 0} In Review
                         </div>
                     </div>
                 `;

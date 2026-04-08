@@ -129,7 +129,6 @@ pub struct AppState {
     pub allow_all_submit: bool,
     pub smtp_enabled: bool,
     pub dry_run: bool,
-    stats_cache: AsyncCache<serde_json::Value>,
     stats_timeline_cache: AsyncMapCache<Option<i64>, serde_json::Value>,
     stats_reviews_cache: AsyncCache<serde_json::Value>,
     stats_tools_cache: AsyncCache<serde_json::Value>,
@@ -244,7 +243,6 @@ pub async fn run_server(
         allow_all_submit,
         smtp_enabled,
         dry_run,
-        stats_cache: AsyncCache::new(Duration::from_secs(60)),
         stats_timeline_cache: AsyncMapCache::new(Duration::from_secs(60)),
         stats_reviews_cache: AsyncCache::new(Duration::from_secs(60)),
         stats_tools_cache: AsyncCache::new(Duration::from_secs(60)),
@@ -840,47 +838,17 @@ async fn get_message(
 }
 
 async fn get_stats(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let val = state
-        .stats_cache
-        .get_or_fetch(|| async {
-            let messages = state.db.count_messages(None, None).await.unwrap_or(0);
-            let patchsets = state.db.count_patchsets(None, None).await.unwrap_or(0);
-            let counts = state
-                .db
-                .get_patchset_counts_by_status()
-                .await
-                .unwrap_or_default();
+    let pending = crate::metrics::get_pending_patches();
+    let reviewing = crate::metrics::get_reviewing_patches();
 
-            let pending = *counts.get("Pending").unwrap_or(&0);
-            let reviewing =
-                *counts.get("In Review").unwrap_or(&0) + *counts.get("Applying").unwrap_or(&0);
-            let reviewed = *counts.get("Reviewed").unwrap_or(&0);
-            let failed = *counts.get("Failed").unwrap_or(&0);
-            let failed_to_apply = *counts.get("Failed To Apply").unwrap_or(&0);
-            let incomplete = *counts.get("Incomplete").unwrap_or(&0);
-            let cancelled = *counts.get("Cancelled").unwrap_or(&0);
-
-            Ok::<serde_json::Value, StatusCode>(serde_json::json!({
-                "status": "ok",
-                "version": env!("CARGO_PKG_VERSION"),
-                "messages": messages,
-                "patchsets": patchsets,
-                "breakdown": {
-                    "pending": pending,
-                    "reviewing": reviewing,
-                    "reviewed": reviewed,
-                    "failed": failed,
-                    "failed_to_apply": failed_to_apply,
-                    "incomplete": incomplete,
-                    "cancelled": cancelled
-                }
-            }))
-        })
-        .await?;
-
-    Ok(Json(val))
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "pending": pending,
+        "reviewing": reviewing
+    })))
 }
 
 async fn stats_timeline(

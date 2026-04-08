@@ -2267,6 +2267,34 @@ impl Database {
         }
     }
 
+    pub async fn count_pending_patches(&self) -> Result<usize> {
+        let mut rows = self.conn.query(
+            "SELECT COUNT(p.id) FROM patches p JOIN patchsets ps ON p.patchset_id = ps.id 
+             WHERE ps.status IN ('Pending', 'In Review') AND p.status = 'Pending' 
+             AND p.id NOT IN (SELECT patch_id FROM reviews WHERE status IN ('Pending', 'In Review', 'Applying') AND patch_id IS NOT NULL)",
+            ()
+        ).await?;
+        if let Ok(Some(row)) = rows.next().await {
+            let count: i64 = row.get(0)?;
+            Ok(count as usize)
+        } else {
+            Ok(0)
+        }
+    }
+
+    pub async fn count_reviewing_patches(&self) -> Result<usize> {
+        let mut rows = self.conn.query(
+            "SELECT COUNT(DISTINCT patch_id) FROM reviews WHERE status IN ('Pending', 'In Review', 'Applying') AND patch_id IS NOT NULL",
+            ()
+        ).await?;
+        if let Ok(Some(row)) = rows.next().await {
+            let count: i64 = row.get(0)?;
+            Ok(count as usize)
+        } else {
+            Ok(0)
+        }
+    }
+
     pub async fn count_messages(
         &self,
         query: Option<String>,

@@ -546,6 +546,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         reviewer.start().await;
     });
 
+    let metrics_db = db.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Ok(pending) = metrics_db.count_pending_patches().await {
+                sashiko::metrics::set_pending_patches(pending);
+            }
+            if let Ok(reviewing) = metrics_db.count_reviewing_patches().await {
+                sashiko::metrics::set_reviewing_patches(reviewing);
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
+    });
+
     // Keep the main thread running
     tokio::signal::ctrl_c().await?;
     info!("Shutting down...");
