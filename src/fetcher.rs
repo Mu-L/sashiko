@@ -515,7 +515,7 @@ impl FetchAgent {
         let diff = parts[1..].join("---SASHIKO-END-HEADER---\n"); // Rejoin just in case
 
         let mut lines = header_part.lines();
-        let author_name = lines.next().unwrap_or("Unknown").trim();
+        let author_name = lines.next().unwrap_or_default().trim();
         let author_email = lines.next().unwrap_or("unknown@localhost").trim();
         let subject = lines.next().unwrap_or("No Subject").trim();
 
@@ -523,7 +523,11 @@ impl FetchAgent {
         let body: Vec<&str> = lines.collect();
         let message = body.join("\n").trim().to_string();
 
-        let author = format!("{} <{}>", author_name, author_email);
+        let author = if author_name.is_empty() || author_name.to_lowercase() == "unknown" {
+            author_email.to_string()
+        } else {
+            format!("{} <{}>", author_name, author_email)
+        };
 
         Ok(Event::PatchSubmitted {
             group: "git-fetch".to_string(),
