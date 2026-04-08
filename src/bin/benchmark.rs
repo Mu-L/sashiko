@@ -16,6 +16,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use futures::stream::StreamExt;
 use regex::Regex;
+use reqwest::Client;
 use sashiko::ai::claude::ClaudeError;
 use sashiko::ai::gemini::GeminiError;
 use sashiko::ai::openai::OpenAiCompatError;
@@ -28,6 +29,7 @@ use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -37,6 +39,14 @@ struct Args {
     /// Path to the benchmark file
     #[arg(short, long)]
     file: String,
+
+    /// Override the default port (reads from settings by default)
+    #[arg(short, long)]
+    port: Option<u16>,
+
+    /// Override the default repo URL (default: kernel.org linux.git)
+    #[arg(short, long)]
+    repo: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -51,14 +61,24 @@ struct BenchmarkEntry {
     problem_description: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum SubmitRequest {
+    Remote { sha: String, repo: String },
+}
+
 #[derive(Debug, Serialize)]
 struct BenchmarkResult {
     commit: String,
     problem_description: String,
     found: bool,
-    status: String, // "DETECTED", "PARTIALLY_DETECTED", "MISSED", "UNKNOWN", "NOT_REVIEWED", "SKIPPED"
+    status: String, // "DETECTED", "PARTIALLY_DETECTED", "MISSED", "UNKNOWN", "NOT_REVIEWED", "SKIPPED", "NOT_FOUND_IN_DB"
     explanation: String,
     findings_count: usize,
+    tokens_in: u32,
+    tokens_out: u32,
+    turns: u32,
+    duration_secs: u64,
 }
 
 #[tokio::main]
@@ -91,14 +111,112 @@ async fn main() -> Result<()> {
     let total_entries = benchmark_entries.len();
     info!("Loaded {} benchmark entries.", total_entries);
 
-    // Initialize AI provider for evaluation based on settings
+    let port = args.port.unwrap_or(settings.server.port);
+    let repo_url = args.repo.clone().unwrap_or_else(|| {
+        "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git".to_string()
+    });
+
+    let target_url = format!("http://127.0.0.1:{}/api/submit", port);
+    let client = Client::new();
+
+    // --- Phase 1: Ingestion ---
+    info!("--- Phase 1: Ingesting Patches ---");
+    for entry in &benchmark_entries {
+        info!("Submitting commit: {}", entry.commit);
+        let payload = SubmitRequest::Remote {
+            sha: entry.commit.clone(),
+            repo: repo_url.clone(),
+        };
+
+        let res = client.post(&target_url).json(&payload).send().await;
+        match res {
+            Ok(response) => {
+                if response.status().is_success() {
+                    info!("Successfully submitted {}", entry.commit);
+                } else {
+                    let status = response.status();
+                    let text = response.text().await.unwrap_or_default();
+                    error!(
+                        "Failed to submit {}: Status {} Body: {}",
+                        entry.commit, status, text
+                    );
+                }
+            }
+            Err(e) => {
+                error!("Failed to send request for {}: {}", entry.commit, e);
+            }
+        }
+    }
+
+    // --- Phase 2: Wait for Reviews to Finish ---
+    info!("--- Phase 2: Waiting for Reviews to Complete ---");
+    loop {
+        let mut all_completed = true;
+        let mut missing_patches = 0;
+        let mut pending_reviews = 0;
+        let mut completed_reviews = 0;
+
+        for entry in &benchmark_entries {
+            // Find patch ID
+            let mut rows = db
+                .conn
+                .query(
+                    "SELECT id FROM patches WHERE message_id = ?",
+                    libsql::params![entry.commit.clone()],
+                )
+                .await?;
+
+            let patch_id = if let Ok(Some(row)) = rows.next().await {
+                row.get::<i64>(0).unwrap_or_default()
+            } else {
+                // Patch not found yet (maybe still downloading/parsing)
+                all_completed = false;
+                missing_patches += 1;
+                continue;
+            };
+
+            // Check review status
+            let mut rows = db
+                .conn
+                .query(
+                    "SELECT status FROM reviews WHERE patch_id = ? ORDER BY id DESC LIMIT 1",
+                    libsql::params![patch_id],
+                )
+                .await?;
+
+            if let Ok(Some(row)) = rows.next().await {
+                let status: String = row.get(0).unwrap_or_default();
+                if status == "Pending" || status == "In Review" {
+                    all_completed = false;
+                    pending_reviews += 1;
+                } else {
+                    completed_reviews += 1;
+                }
+            } else {
+                // No review created yet
+                all_completed = false;
+                pending_reviews += 1;
+            }
+        }
+
+        if all_completed {
+            info!("All {} patches have been reviewed.", total_entries);
+            break;
+        }
+
+        info!(
+            "Waiting... Completed: {}, Pending: {}, Missing Patches: {}",
+            completed_reviews, pending_reviews, missing_patches
+        );
+        sleep(Duration::from_secs(5)).await;
+    }
+
+    // --- Phase 3: Evaluate Results ---
+    info!("--- Phase 3: Evaluating Results ---");
     let ai_provider = create_provider(&settings).context("Failed to create AI provider")?;
-
     let processed_count = Arc::new(AtomicUsize::new(0));
-
-    // Process concurrently using settings
     let concurrency = settings.review.concurrency;
-    info!("Running with concurrency: {}", concurrency);
+    info!("Running evaluation with concurrency: {}", concurrency);
 
     let results: Vec<BenchmarkResult> = futures::stream::iter(benchmark_entries)
         .map(|entry| {
@@ -125,6 +243,12 @@ async fn main() -> Result<()> {
     let mut not_reviewed_count = 0;
     let mut skipped_count = 0;
 
+    let mut total_tokens_in: u64 = 0;
+    let mut total_tokens_out: u64 = 0;
+    let mut total_turns: u64 = 0;
+    let mut total_duration: u64 = 0;
+    let mut valid_metric_count: u64 = 0;
+
     for res in &results {
         match res.status.as_str() {
             "DETECTED" => detected_count += 1,
@@ -133,6 +257,14 @@ async fn main() -> Result<()> {
             "NOT_REVIEWED" | "NOT_FOUND_IN_DB" => not_reviewed_count += 1,
             "SKIPPED" => skipped_count += 1,
             _ => {}
+        }
+
+        if res.turns > 0 || res.duration_secs > 0 {
+            total_tokens_in += res.tokens_in as u64;
+            total_tokens_out += res.tokens_out as u64;
+            total_turns += res.turns as u64;
+            total_duration += res.duration_secs;
+            valid_metric_count += 1;
         }
     }
 
@@ -147,6 +279,18 @@ async fn main() -> Result<()> {
     info!("Missed: {}", missed_count);
     info!("Not Reviewed/Found: {}", not_reviewed_count);
     info!("Skipped (No Description): {}", skipped_count);
+
+    if valid_metric_count > 0 {
+        info!("--- Performance Metrics (averages per reviewed patch) ---");
+        info!("Avg Tokens In:  {}", total_tokens_in / valid_metric_count);
+        info!("Avg Tokens Out: {}", total_tokens_out / valid_metric_count);
+        info!(
+            "Avg Turns:      {:.1}",
+            total_turns as f64 / valid_metric_count as f64
+        );
+        info!("Avg Time:       {}s", total_duration / valid_metric_count);
+    }
+
     info!("Detailed results written to benchmark_results.json");
 
     Ok(())
@@ -165,6 +309,10 @@ async fn process_entry(
             status: "SKIPPED".to_string(),
             explanation: "No problem description provided".to_string(),
             findings_count: 0,
+            tokens_in: 0,
+            tokens_out: 0,
+            turns: 0,
+            duration_secs: 0,
         };
     }
     let problem_description = entry.problem_description.clone().unwrap();
@@ -201,6 +349,10 @@ async fn process_entry(
             status: "NOT_FOUND_IN_DB".to_string(),
             explanation: "Patch not found in database.".to_string(),
             findings_count: 0,
+            tokens_in: 0,
+            tokens_out: 0,
+            turns: 0,
+            duration_secs: 0,
         };
     }
     let patch_id = patch_id.unwrap();
@@ -209,7 +361,7 @@ async fn process_entry(
     let review_result = db
         .conn
         .query(
-            "SELECT id, summary, result_description FROM reviews WHERE patch_id = ? ORDER BY id DESC LIMIT 1",
+            "SELECT id, summary, result_description, interaction_id, created_at FROM reviews WHERE patch_id = ? ORDER BY id DESC LIMIT 1",
             libsql::params![patch_id],
         )
         .await;
@@ -220,7 +372,9 @@ async fn process_entry(
                 let id: i64 = row.get(0).unwrap_or_default();
                 let summary: Option<String> = row.get(1).ok();
                 let result_desc: Option<String> = row.get(2).ok();
-                Some((id, summary, result_desc))
+                let interaction_id: Option<String> = row.get(3).ok();
+                let created_at: Option<i64> = row.get(4).ok();
+                Some((id, summary, result_desc, interaction_id, created_at))
             } else {
                 None
             }
@@ -237,9 +391,59 @@ async fn process_entry(
             status: "NOT_REVIEWED".to_string(),
             explanation: "Patch found but no review exists.".to_string(),
             findings_count: 0,
+            tokens_in: 0,
+            tokens_out: 0,
+            turns: 0,
+            duration_secs: 0,
         };
     }
-    let (review_id, summary, result_desc) = review_data.unwrap();
+    let (review_id, summary, result_desc, interaction_id, review_created_at) = review_data.unwrap();
+
+    // Metrics Tracking
+    let mut tokens_in = 0;
+    let mut tokens_out = 0;
+    let mut duration_secs = 0;
+    let mut turns = 1; // Minimum 1 turn for the initial prompt
+
+    if let Some(iid) = interaction_id {
+        let int_rows = db
+            .conn
+            .query(
+                "SELECT tokens_in, tokens_out, created_at FROM ai_interactions WHERE id = ?",
+                libsql::params![iid],
+            )
+            .await;
+
+        if let Ok(mut rows) = int_rows
+            && let Ok(Some(row)) = rows.next().await
+        {
+            tokens_in = row.get::<i64>(0).unwrap_or(0) as u32;
+            tokens_out = row.get::<i64>(1).unwrap_or(0) as u32;
+            let int_created_at = row.get::<i64>(2).unwrap_or(0);
+
+            if let Some(start_time) = review_created_at
+                && int_created_at >= start_time
+            {
+                duration_secs = (int_created_at - start_time) as u64;
+            }
+        }
+    }
+
+    // Number of turns based on tool usages
+    let tool_usages_result = db
+        .conn
+        .query(
+            "SELECT COUNT(*) FROM tool_usages WHERE review_id = ?",
+            libsql::params![review_id],
+        )
+        .await;
+
+    if let Ok(mut rows) = tool_usages_result
+        && let Ok(Some(row)) = rows.next().await
+    {
+        let tool_count: i64 = row.get(0).unwrap_or(0);
+        turns = 1 + tool_count as u32; // Each tool call adds a turn, plus final response
+    }
 
     // 3. Find Findings
     let findings_result = db
@@ -381,5 +585,9 @@ async fn process_entry(
         status,
         explanation,
         findings_count,
+        tokens_in,
+        tokens_out,
+        turns,
+        duration_secs,
     }
 }
