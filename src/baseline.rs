@@ -521,6 +521,37 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_base_commit_variations() {
+        // Standard
+        assert_eq!(
+            extract_base_commit("base-commit: 1234567890123456789012345678901234567890"),
+            Some("1234567890123456789012345678901234567890".to_string())
+        );
+        // With leading spaces
+        assert_eq!(
+            extract_base_commit("base-commit:  1234567890123456789012345678901234567890"),
+            Some("1234567890123456789012345678901234567890".to_string())
+        );
+        // Case insensitive
+        assert_eq!(
+            extract_base_commit("Base-Commit: 1234567890123456789012345678901234567890"),
+            Some("1234567890123456789012345678901234567890".to_string())
+        );
+        // Multiline body
+        assert_eq!(
+            extract_base_commit(
+                "Some text\n\nbase-commit: 1234567890123456789012345678901234567890\n\nMore text"
+            ),
+            Some("1234567890123456789012345678901234567890".to_string())
+        );
+        // No match
+        assert_eq!(
+            extract_base_commit("Not a base commit: 1234567890123456789012345678901234567890"),
+            None
+        );
+    }
+
+    #[test]
     fn test_resolve_candidates() {
         let registry = create_registry();
         let files = vec!["net/core.c".to_string()];
