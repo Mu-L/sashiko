@@ -489,7 +489,7 @@ pub fn extract_files_from_diff(diff: &str) -> Vec<String> {
 pub fn extract_base_commit(body: &str) -> Option<String> {
     static BASE_COMMIT_RE: OnceLock<Regex> = OnceLock::new();
     let re =
-        BASE_COMMIT_RE.get_or_init(|| Regex::new(r"(?m)^base-commit: ([0-9a-f]{40})").unwrap());
+        BASE_COMMIT_RE.get_or_init(|| Regex::new(r"(?im)^base-commit:\s*([0-9a-f]{40})").unwrap());
     re.captures(body)
         .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
 }

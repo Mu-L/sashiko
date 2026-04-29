@@ -334,17 +334,28 @@ impl Reviewer {
         all_files.sort();
         all_files.dedup();
 
-        let body = if let Some(mid) = &patchset.message_id {
-            ctx.db.get_message_body(mid).await.unwrap_or(None)
-        } else if let Some(first_patch_msg_id) =
-            patches_json.first().and_then(|p| p["message_id"].as_str())
+        let mut full_body = String::new();
+
+        if let Some(mid) = &patchset.message_id
+            && let Ok(Some(b)) = ctx.db.get_message_body(mid).await
         {
-            ctx.db
-                .get_message_body(first_patch_msg_id)
-                .await
-                .unwrap_or(None)
-        } else {
+            full_body.push_str(&b);
+            full_body.push('\n');
+        }
+
+        for p in patches_json.iter() {
+            if let Some(mid) = p["message_id"].as_str()
+                && let Ok(Some(b)) = ctx.db.get_message_body(mid).await
+            {
+                full_body.push_str(&b);
+                full_body.push('\n');
+            }
+        }
+
+        let body = if full_body.is_empty() {
             None
+        } else {
+            Some(full_body)
         };
 
         let subject = patchset.subject.clone().unwrap_or("Unknown".to_string());
