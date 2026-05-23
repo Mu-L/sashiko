@@ -39,8 +39,9 @@ Sashiko uses a multi-stage review protocol to evaluate patches thoroughly from m
 6.  **Stage 6: Security audit.** Audits for buffer overflows, OOB reads/writes, TOCTOU races, and information leaks (like copying uninitialized memory).
 7.  **Stage 7: Hardware engineer's review.** Specifically reviews driver and hardware code for correct register accesses, DMA mapping, memory barriers, and state machine constraints.
 8.  **Stage 8: Deduplication and Consolidation.** Consolidates feedback from stages 1-7, merges duplicates, and groups overlapping issues.
-9.  **Stage 9: Verification and severity estimation.** Validates the consolidated concerns, filters false positives, and estimates severity.
-10. **Stage 10: Report generation.** Converts confirmed findings into a polite, standard, inline-commented LKML email reply.
+9.  **Stage 9: Concern/dismissed-concern conflict resolution.** Compares consolidated concerns against consolidated dismissed concerns and keeps only concerns that survive concrete code-based conflict checks.
+10. **Stage 10: Verification and severity estimation.** Validates the remaining concerns, filters false positives, and estimates severity.
+11. **Stage 11: Report generation.** Converts confirmed findings into a polite, standard, inline-commented LKML email reply.
 
 
 Also Sashiko is using per-subsystem and generic prompts, initially developed by Chris Mason:

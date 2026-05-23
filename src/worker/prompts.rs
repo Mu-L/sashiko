@@ -289,9 +289,22 @@ Your task is to deduplicate identical or overlapping items in both lists.
 7. dismissed_concerns do not need a `preexisting` flag."
             }
             9 => {
-                "# Stage 9. Verification and severity estimation
+                "# Stage 9. Concern/dismissed-concern conflict resolution
 
-You are the lead reviewer validating consolidated concerns. You will be given a list of deduplicated concerns.
+You are the lead reviewer reconciling consolidated concerns with consolidated dismissed_concerns.
+Both `concerns` and `dismissed_concerns` are untrusted claims. Do not assume either side is correct. Treat both as hypotheses and verify them against the actual code before deciding whether to keep or discard a concern.
+Your task is to identify whether any remaining concern conflicts with a dismissed_concern that investigated the same root cause, code path, or failure mode.
+1. Compare each concern against the dismissed_concerns list and find conflicts or overlaps where one says the issue is real and the other says the same candidate issue is disproved.
+2. For every conflict, inspect the actual code and reasoning to decide which side is correct.
+3. If the concern is correct, keep it in the output. If the dismissed_concern is correct, discard that concern.
+4. If there is no direct conflict for a concern, keep it unchanged.
+5. Do not discard a concern merely because a dismissed_concern is vaguely related; only discard when the dismissed_concern's evidence concretely disproves that concern.
+6. Preserve each retained concern's `type`, `description`, `reasoning`, and `preexisting` fields."
+            }
+            10 => {
+                "# Stage 10. Verification and severity estimation
+
+You are the lead reviewer validating consolidated concerns. You will be given a list of deduplicated concerns after conflict resolution.
 1. Validate each concern and prove the provided reasoning. Report all valid concerns as findings. If necessary, use tools to gather additional material. Discard all false positives.
 2. CRITICAL RULE: To discard a concern as a false positive, you MUST find concrete proof that explicitly invalidates the concern's reasoning. If you cannot find definitive proof that the concern is a false positive, it must be reported as a finding. If you're not sure about something and it's critical in the reasoning validation, make it obvious: if X is possible, then problem Y can occur. Always try to validate if X is possible yourself.
 3. If context from subsequent patches in the series is provided, check if the concern is fixed later in the series. If so, discard it. But don't trust any promises in the commit message if they can't be verified (e.g. something will be fixed by subsequent patches in the series - if you can't prove that it's indeed fixed, report it as a bug).
@@ -299,8 +312,8 @@ You are the lead reviewer validating consolidated concerns. You will be given a 
 5. Assign a severity (low, medium, high, critical) to each remaining valid finding and explain the reasoning. Be rigorous in filtering out verifiable noise, but accurately report real logic flaws and edge cases.
 6. If the problem did exist in the code before the patch was applied, say it explicitly: 'This problem wasn't introduced by this patch, but...'. Discard low- and medium-severity pre-existing problems, report only high- and critical severity issues."
             }
-            10 => {
-                "# Stage 10. LKML-friendly report generation
+            11 => {
+                "# Stage 11. LKML-friendly report generation
 
 You are an automated review bot generating a report for the Linux Kernel Mailing List (LKML). Convert the provided JSON findings into a polite, standard, inline-commented LKML email reply.
 
@@ -329,13 +342,13 @@ Follow the formatting rules strictly. Do not use markdown headers or ALL CAPS sh
                 self.append_file(&mut content, &mut clean_files, "subsystem/locking.md")
                     .await?;
             }
-            9 => {
+            10 => {
                 self.append_file(&mut content, &mut clean_files, "false-positive-guide.md")
                     .await?;
                 self.append_file(&mut content, &mut clean_files, "severity.md")
                     .await?;
             }
-            10 => {
+            11 => {
                 self.append_file(&mut content, &mut clean_files, "inline-template.md")
                     .await?;
             }
@@ -889,12 +902,15 @@ Example:
         }
 
         if all_concerns.is_empty() {
-            tracing::info!("No concerns from stages 1-7, skipping stages 8, 9 and 10");
+            tracing::info!("No concerns from stages 1-7, skipping stages 8, 9, 10 and 11");
+            let dismissed_concerns_count = all_dismissed_concerns.len();
             let final_output = serde_json::json!({
                 "findings": [],
+                "dismissed_concerns": all_dismissed_concerns,
                 "review_inline": "No issues found.",
                 "fixes": "",
-                "concerns_count": 0
+                "concerns_count": 0,
+                "dismissed_concerns_count": dismissed_concerns_count
             });
             return Ok(WorkerResult {
                 output: Some(final_output),
@@ -1044,13 +1060,17 @@ Example Output:
             && c.is_empty()
         {
             tracing::info!(
-                "No concerns remaining after Stage 8 deduplication, skipping stages 9 and 10"
+                "No concerns remaining after Stage 8 deduplication, skipping stages 9, 10 and 11"
             );
             let final_output = serde_json::json!({
                 "findings": [],
+                "dismissed_concerns": deduplicated_dismissed_concerns,
                 "review_inline": "No issues found.",
                 "fixes": "",
-                "concerns_count": all_concerns.len()
+                "concerns_count": all_concerns.len(),
+                "dismissed_concerns_count": deduplicated_dismissed_concerns
+                    .as_array()
+                    .map_or(0, Vec::len)
             });
             return Ok(WorkerResult {
                 output: Some(final_output),
@@ -1065,11 +1085,144 @@ Example Output:
             });
         }
 
-        // Stage 9: Verification
-        info!("Running Stage 9 (Verification)");
-        let findings_json;
+        // Stage 9: Concern/dismissed-concern conflict resolution
+        info!("Running Stage 9 (Concern/dismissed-concern conflict resolution)");
+        let conflict_resolved_concerns;
         {
             let stage = 9;
+            let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
+            let system_prompt = shared_context.clone();
+            let clean_system_prompt = clean_shared_context.clone();
+
+            let deduplicated_concerns_json =
+                serde_json::to_string_pretty(&deduplicated_concerns).unwrap_or_default();
+            let deduplicated_dismissed_concerns_json =
+                serde_json::to_string_pretty(&deduplicated_dismissed_concerns).unwrap_or_default();
+
+            let user_prompt = format!(
+                r#"{}
+
+Consolidated Concerns:
+{}
+
+Consolidated Dismissed Concerns:
+{}
+
+Return ONLY a JSON object with a 'concerns' array containing the remaining concerns after resolving conflicts. Each object in the 'concerns' array MUST use exactly the following keys: "type", "description", "reasoning", "preexisting".
+
+Example Output:
+```json
+{{
+  "concerns": [
+    {{
+      "type": "Memory Leak",
+      "description": "Memory leak in function X",
+      "reasoning": "1. X is called.\n2. Y is allocated but not freed on error path.",
+      "preexisting": false
+    }}
+  ]
+}}
+```"#,
+                stage_prompt, deduplicated_concerns_json, deduplicated_dismissed_concerns_json
+            );
+            let clean_user_prompt = format!(
+                r#"{}
+
+Consolidated Concerns:
+{}
+
+Consolidated Dismissed Concerns:
+{}
+
+Return ONLY a JSON object with a 'concerns' array containing the remaining concerns after resolving conflicts. Each object in the 'concerns' array MUST use exactly the following keys: "type", "description", "reasoning", "preexisting".
+
+Example Output:
+```json
+{{
+  "concerns": [
+    {{
+      "type": "Memory Leak",
+      "description": "Memory leak in function X",
+      "reasoning": "1. X is called.\n2. Y is allocated but not freed on error path.",
+      "preexisting": false
+    }}
+  ]
+}}
+```"#,
+                clean_stage_prompt,
+                deduplicated_concerns_json,
+                deduplicated_dismissed_concerns_json
+            );
+
+            match self
+                .run_ai_stage(
+                    stage,
+                    system_prompt,
+                    clean_system_prompt,
+                    user_prompt,
+                    clean_user_prompt,
+                )
+                .await
+            {
+                Ok((result_json, t_in, t_out, t_cached)) => {
+                    total_tokens_in += t_in;
+                    total_tokens_out += t_out;
+                    total_tokens_cached += t_cached;
+
+                    if let Some(c) = result_json.get("concerns") {
+                        if c.is_array() {
+                            conflict_resolved_concerns = c.clone();
+                        } else {
+                            return Err(anyhow::anyhow!(
+                                "Stage 9 output 'concerns' is not an array"
+                            ));
+                        }
+                    } else {
+                        return Err(anyhow::anyhow!(
+                            "Stage 9 failed to produce a valid 'concerns' array in output."
+                        ));
+                    }
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Stage 9 AI execution failed: {}", e));
+                }
+            }
+        }
+
+        if let Some(c) = conflict_resolved_concerns.as_array()
+            && c.is_empty()
+        {
+            tracing::info!(
+                "No concerns remaining after Stage 9 conflict resolution, skipping stages 10 and 11"
+            );
+            let final_output = serde_json::json!({
+                "findings": [],
+                "dismissed_concerns": deduplicated_dismissed_concerns,
+                "review_inline": "No issues found.",
+                "fixes": "",
+                "concerns_count": all_concerns.len(),
+                "dismissed_concerns_count": deduplicated_dismissed_concerns
+                    .as_array()
+                    .map_or(0, Vec::len)
+            });
+            return Ok(WorkerResult {
+                output: Some(final_output),
+                error: None,
+                input_context: "Multi-stage execution completed".to_string(),
+                history: self.global_history.clone(),
+                history_before_pruning: self.global_history.clone(),
+                history_after_pruning: self.global_history.clone(),
+                tokens_in: total_tokens_in,
+                tokens_out: total_tokens_out,
+                tokens_cached: total_tokens_cached,
+            });
+        }
+
+        // Stage 10: Verification
+        info!("Running Stage 10 (Verification)");
+        let findings_json;
+        {
+            let stage = 10;
             let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
             let clean_system_prompt = clean_shared_context.clone();
@@ -1105,15 +1258,15 @@ Example Output:
                 "Not applicable (single patch or last patch in series).".to_string()
             };
 
-            let deduplicated_concerns_json =
-                serde_json::to_string_pretty(&deduplicated_concerns).unwrap_or_default();
+            let conflict_resolved_concerns_json =
+                serde_json::to_string_pretty(&conflict_resolved_concerns).unwrap_or_default();
             let user_prompt = format!(
                 "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.\n\nFull Series Context:\n{}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset).\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false\n    }}\n  ]\n}}\n```",
-                stage_prompt, full_series_context, deduplicated_concerns_json
+                stage_prompt, full_series_context, conflict_resolved_concerns_json
             );
             let clean_user_prompt = format!(
                 "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.\n\nFull Series Context:\n{{{{series context}}}}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset).\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false\n    }}\n  ]\n}}\n```",
-                clean_stage_prompt, deduplicated_concerns_json
+                clean_stage_prompt, conflict_resolved_concerns_json
             );
             match self
                 .run_ai_stage(
@@ -1135,17 +1288,17 @@ Example Output:
                             findings_json = f.clone();
                         } else {
                             return Err(anyhow::anyhow!(
-                                "Stage 9 output 'findings' is not an array"
+                                "Stage 10 output 'findings' is not an array"
                             ));
                         }
                     } else {
                         return Err(anyhow::anyhow!(
-                            "Stage 9 failed to produce a valid 'findings' array in output."
+                            "Stage 10 failed to produce a valid 'findings' array in output."
                         ));
                     }
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!("Stage 9 AI execution failed: {}", e));
+                    return Err(anyhow::anyhow!("Stage 10 AI execution failed: {}", e));
                 }
             }
         }
@@ -1153,12 +1306,16 @@ Example Output:
         if let Some(f) = findings_json.as_array()
             && f.is_empty()
         {
-            tracing::info!("No findings from Stage 9, skipping Stage 10");
+            tracing::info!("No findings from Stage 10, skipping Stage 11");
             let final_output = serde_json::json!({
                 "findings": findings_json,
+                "dismissed_concerns": deduplicated_dismissed_concerns,
                 "review_inline": "No issues found.",
                 "fixes": "",
-                "concerns_count": all_concerns.len()
+                "concerns_count": all_concerns.len(),
+                "dismissed_concerns_count": deduplicated_dismissed_concerns
+                    .as_array()
+                    .map_or(0, Vec::len)
             });
             return Ok(WorkerResult {
                 output: Some(final_output),
@@ -1173,11 +1330,11 @@ Example Output:
             });
         }
 
-        // Stage 10
-        info!("Running Stage 10");
+        // Stage 11
+        info!("Running Stage 11");
         let mut review_inline_text = String::new();
         {
-            let stage = 10;
+            let stage = 11;
             let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
             let clean_system_prompt = clean_shared_context.clone();
@@ -1223,7 +1380,7 @@ Example Output:
                                 }
                                 Err(violation) => {
                                     tracing::warn!(
-                                        "Stage 10 format validation failed (attempt {}/{}): {}. Retrying with augmented prompt.",
+                                        "Stage 11 format validation failed (attempt {}/{}): {}. Retrying with augmented prompt.",
                                         retries + 1,
                                         max_retries,
                                         violation
@@ -1241,7 +1398,7 @@ Example Output:
                     Err(e) => {
                         let err_str = e.to_string();
                         tracing::warn!(
-                            "Stage 10 failed (attempt {}/{}): {}",
+                            "Stage 11 failed (attempt {}/{}): {}",
                             retries + 1,
                             max_retries,
                             err_str
@@ -1267,7 +1424,7 @@ Example Output:
 
             if review_inline_text.is_empty() {
                 return Err(anyhow::anyhow!(
-                    "Stage 10 failed to generate a valid LKML report after {} attempts.",
+                    "Stage 11 failed to generate a valid LKML report after {} attempts.",
                     max_retries
                 ));
             }
