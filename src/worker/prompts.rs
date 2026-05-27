@@ -932,6 +932,14 @@ Example:
                                 "Stage {} AI execution failed (inner attempt {}/{}): {}",
                                 stage, inner_attempts, max_inner_attempts, e
                             );
+
+                            let err_msg = e.to_string();
+                            if err_msg.contains("RECITATION") || err_msg.contains("blocked") {
+                                let reminder = "\n\nIMPORTANT: Your previous response was blocked by a recitation filter. Please ensure you do NOT copy large blocks of code verbatim in your response. Describe code changes in prose, or use highly simplified pseudo-code if you must show code structure.";
+                                active_user_prompt = format!("{}{}", active_user_prompt, reminder);
+                                active_clean_user_prompt =
+                                    format!("{}{}", active_clean_user_prompt, reminder);
+                            }
                         }
                     }
                 }
@@ -2542,5 +2550,89 @@ mod tests {
         assert_eq!(response_msg.role, AiRole::Tool);
         let content = response_msg.content.as_ref().unwrap();
         assert!(!content.contains("Duplicate tool call detected"));
+    }
+
+    struct MockBlockedProvider {
+        attempts: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ai::AiProvider for MockBlockedProvider {
+        async fn generate_content(
+            &self,
+            request: crate::ai::AiRequest,
+        ) -> anyhow::Result<crate::ai::AiResponse> {
+            let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+            if attempt == 0 {
+                anyhow::bail!(
+                    "Remote AI Error: Gemini candidate blocked (finish reason: RECITATION)"
+                )
+            } else {
+                let user_msg = request
+                    .messages
+                    .iter()
+                    .find(|m| m.role == crate::ai::AiRole::User);
+                if let Some(msg) = user_msg
+                    && let Some(content) = &msg.content
+                    && content.contains("recitation filter")
+                {
+                    return Ok(crate::ai::AiResponse {
+                        content: Some(r#"{"concerns": [], "dismissed_concerns": []}"#.to_string()),
+                        thought: None,
+                        thought_signature: None,
+                        tool_calls: None,
+                        usage: None,
+                        truncated: false,
+                    });
+                }
+                anyhow::bail!(
+                    "Remote AI Error: Gemini candidate blocked again (finish reason: RECITATION)"
+                )
+            }
+        }
+
+        fn estimate_tokens(&self, _request: &crate::ai::AiRequest) -> usize {
+            0
+        }
+
+        fn get_capabilities(&self) -> crate::ai::ProviderCapabilities {
+            crate::ai::ProviderCapabilities {
+                model_name: "mock".to_string(),
+                context_window_size: 1000,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recitation_error_triggers_prompt_perturbation() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("prompts");
+        std::fs::create_dir_all(&prompts_dir).unwrap();
+
+        let provider = std::sync::Arc::new(MockBlockedProvider {
+            attempts: AtomicUsize::new(0),
+        });
+        let tools = crate::worker::tools::ToolBox::new(temp_dir.path().to_path_buf(), None);
+        let prompts = PromptRegistry::new(prompts_dir);
+        let config = WorkerConfig {
+            max_input_tokens: 10000,
+            max_interactions: 3,
+            temperature: 0.0,
+            series_range: None,
+            custom_prompt: None,
+            stages: Some(vec![1]),
+        };
+        let mut worker = Worker::new(provider, tools, prompts, config);
+
+        let patchset = serde_json::json!({
+            "id": 1,
+            "patch_index": 1,
+            "patches": [{"diff": "diff --git a/foo.c b/foo.c\n+int x;"}]
+        });
+
+        let res = worker.run(patchset).await;
+        if let Err(e) = &res {
+            panic!("Expected run to succeed, got error: {:?}", e);
+        }
     }
 }

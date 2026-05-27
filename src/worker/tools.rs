@@ -642,7 +642,12 @@ impl ToolBox {
             return Err(anyhow!("Invalid object name: {}", object));
         }
 
-        let raw_key = format!("git_show_raw:{}:{}:{:?}", object, suppress_diff, args.get("paths"));
+        let raw_key = format!(
+            "git_show_raw:{}:{}:{:?}",
+            object,
+            suppress_diff,
+            args.get("paths")
+        );
 
         let content = {
             let cached_raw = {

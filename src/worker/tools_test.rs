@@ -170,7 +170,14 @@ mod tests {
         {
             let cache = toolbox.cache.read().unwrap();
             assert!(cache.contains_key(raw_key), "Raw key should be cached");
-            assert!(cache.get(raw_key).unwrap().as_str().unwrap().contains("Sashiko"));
+            assert!(
+                cache
+                    .get(raw_key)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .contains("Sashiko")
+            );
         }
 
         // 2. Read different subrange lines 10-15 of the same file
