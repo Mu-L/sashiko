@@ -23,7 +23,7 @@ use sashiko::{
     },
 };
 use serde_json::json;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use tracing::{error, info};
 
@@ -479,6 +479,7 @@ async fn main() -> Result<()> {
 
                     if let Some(json) = review_result_to_print {
                         println!("{}", serde_json::to_string(&json)?);
+                        std::io::stdout().flush()?;
                     } else {
                         let result_json = json!({
                             "patchset_id": patchset_id,
@@ -487,6 +488,7 @@ async fn main() -> Result<()> {
                             "error": "Internal error: Review loop finished without result"
                         });
                         println!("{}", serde_json::to_string(&result_json)?);
+                        std::io::stdout().flush()?;
                     }
                 }
             } else {
@@ -498,6 +500,7 @@ async fn main() -> Result<()> {
                     "error": "Patch application failed"
                 });
                 println!("{}", serde_json::to_string(&result_json)?);
+                std::io::stdout().flush()?;
             }
             Ok::<(), anyhow::Error>(())
         }.await;
@@ -517,6 +520,7 @@ async fn main() -> Result<()> {
             "error": e.to_string()
         });
         println!("{}", serde_json::to_string(&error_json)?);
+        let _ = std::io::stdout().flush();
     }
     Ok(())
 }

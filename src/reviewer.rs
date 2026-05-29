@@ -1609,6 +1609,7 @@ async fn run_review_tool(
         TokioInstant::now() + Duration::from_secs(settings.review.timeout_seconds),
     ));
 
+    let mut spawned_tasks = Vec::new();
     let interaction_result =
         async {
             // Send initial payload
@@ -1691,7 +1692,7 @@ async fn run_review_tool(
                                         let abort_tx_clone = abort_tx.clone();
                                         let llm_semaphore_clone = llm_semaphore.clone();
 
-                                        tokio::spawn(async move {
+                                        let handle = tokio::spawn(async move {
                                             let req: AiRequest = match serde_json::from_value(payload) {
                                                 Ok(r) => r,
                                                 Err(e) => {
@@ -1934,6 +1935,7 @@ async fn run_review_tool(
                                                 }
                                             }
                                         });
+                                        spawned_tasks.push(handle);
                                     }
                                     _ => {
                                         // Unknown type. Assume it's result if it matches result structure.
@@ -1967,10 +1969,19 @@ async fn run_review_tool(
         }
         .await;
 
-    {
-        let mut writer = stdin_writer.lock().await;
-        let _ = writer.shutdown().await;
+    // Abort all spawned AI request tasks to drop their stdin clones
+    for task in spawned_tasks {
+        task.abort();
     }
+
+    {
+        // Shutdown and drop the stdin writer explicitly
+        if let Ok(mut writer) = stdin_writer.try_lock() {
+            let _ = writer.shutdown().await;
+        }
+    }
+    drop(stdin_writer);
+
     let _ = child.wait().await; // Reap zombie
 
     match interaction_result {
