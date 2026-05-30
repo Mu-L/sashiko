@@ -41,7 +41,7 @@ spec:
         app: sashiko
     spec:
       nodeSelector:
-        cloud.google.com/gke-nodepool: big-pool
+        cloud.google.com/gke-nodepool: n2d-pool
       securityContext:
         fsGroup: 1000
       serviceAccountName: sashiko-ksa
@@ -53,11 +53,11 @@ spec:
           imagePullPolicy: Always
           resources:
             requests:
-              cpu: "12"
-              memory: "100Gi"
+              cpu: "24"
+              memory: "105Gi"
             limits:
-              cpu: "14"
-              memory: "110Gi"
+              cpu: "30"
+              memory: "115Gi"
           ports:
             - containerPort: 8080
           env:

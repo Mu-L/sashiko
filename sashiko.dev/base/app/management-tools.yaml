@@ -53,7 +53,7 @@ spec:
     spec:
       serviceAccountName: sashiko-ksa
       nodeSelector:
-        cloud.google.com/gke-nodepool: big-pool
+        cloud.google.com/gke-nodepool: n2d-pool
       containers:
       - name: main
         image: google/cloud-sdk:alpine
@@ -100,7 +100,7 @@ spec:
         spec:
           serviceAccountName: sashiko-ksa
           nodeSelector:
-            cloud.google.com/gke-nodepool: big-pool
+            cloud.google.com/gke-nodepool: n2d-pool
           containers:
           - name: backup-worker
             image: google/cloud-sdk:alpine
