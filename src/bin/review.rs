@@ -392,6 +392,17 @@ async fn main() -> Result<()> {
 
                         let mut tools = ToolBox::new(worktree.path.clone(), prompts_tool_path);
                         tools.set_active_patch_files(patch_files);
+
+                        let virtual_head = if let Some(idx) = args.review_patch_index {
+                            patch_shas.get(&idx).cloned()
+                        } else {
+                            patches_to_review.first().and_then(|p| patch_shas.get(&p.index).cloned())
+                        };
+                        if let Some(ref sha) = virtual_head {
+                            info!("Setting virtual HEAD to {}", sha);
+                            tools.set_virtual_head(sha.clone());
+                        }
+
                         let prompts = PromptRegistry::new(args.prompts.clone());
 
                         // Calculate series range (baseline..last_patch)

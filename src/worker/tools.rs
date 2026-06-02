@@ -25,6 +25,7 @@ pub struct ToolBox {
     worktree_path: PathBuf,
     prompts_path: Option<PathBuf>,
     active_patch_files: Vec<String>,
+    virtual_head: Option<String>,
     pub(crate) cache: std::sync::RwLock<std::collections::HashMap<String, Value>>,
 }
 
@@ -34,8 +35,22 @@ impl ToolBox {
             worktree_path,
             prompts_path,
             active_patch_files: Vec::new(),
+            virtual_head: None,
             cache: std::sync::RwLock::new(std::collections::HashMap::new()),
         }
+    }
+
+    pub fn set_virtual_head(&mut self, sha: String) {
+        self.virtual_head = Some(sha);
+    }
+
+    pub(crate) fn virtualize_ref(&self, r: &str) -> String {
+        let Some(ref vhead) = self.virtual_head else {
+            return r.to_string();
+        };
+        static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let re = RE.get_or_init(|| regex::Regex::new(r"(^|[^/])\bHEAD\b").unwrap());
+        re.replace_all(r, format!("${{1}}{}", vhead)).into_owned()
     }
 
     pub fn set_active_patch_files(&mut self, files: Vec<String>) {
@@ -393,6 +408,8 @@ impl ToolBox {
         start_line: Option<usize>,
         end_line: Option<usize>,
     ) -> Result<Value> {
+        let revision_virt = self.virtualize_ref(revision);
+        let revision = revision_virt.as_str();
         if path_str.starts_with('-') {
             return Err(anyhow!("Invalid path name: {}", path_str));
         }
@@ -503,9 +520,11 @@ impl ToolBox {
     }
 
     async fn git_blame(&self, args: Value) -> Result<Value> {
-        let revision = args["revision"]
+        let revision_raw = args["revision"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing revision"))?;
+        let revision_virt = self.virtualize_ref(revision_raw);
+        let revision = revision_virt.as_str();
         let path_str = args["path"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing path"))?;
@@ -567,12 +586,16 @@ impl ToolBox {
     }
 
     async fn git_diff(&self, args: Value) -> Result<Value> {
-        let base = args["base_revision"]
+        let base_raw = args["base_revision"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing base_revision"))?;
-        let target = args["target_revision"]
+        let base_virt = self.virtualize_ref(base_raw);
+        let base = base_virt.as_str();
+        let target_raw = args["target_revision"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing target_revision"))?;
+        let target_virt = self.virtualize_ref(target_raw);
+        let target = target_virt.as_str();
 
         if base.starts_with('-') || target.starts_with('-') {
             return Err(anyhow!("Invalid revision names"));
@@ -628,9 +651,11 @@ impl ToolBox {
     }
 
     async fn git_log(&self, args: Value) -> Result<Value> {
-        let range = args["range"]
+        let range_raw = args["range"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing range"))?;
+        let range_virt = self.virtualize_ref(range_raw);
+        let range = range_virt.as_str();
         let limit = args["limit"].as_u64().unwrap_or(10).min(100) as usize;
 
         if range.starts_with('-') {
@@ -681,9 +706,11 @@ impl ToolBox {
     }
 
     async fn git_show(&self, args: Value) -> Result<Value> {
-        let object = args["object"]
+        let object_raw = args["object"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing object"))?;
+        let object_virt = self.virtualize_ref(object_raw);
+        let object = object_virt.as_str();
         let suppress_diff = args["suppress_diff"].as_bool().unwrap_or(false);
         let start_line = args["start_line"].as_u64().map(|v| v as usize);
         let end_line = args["end_line"].as_u64().map(|v| v as usize);
@@ -856,9 +883,11 @@ impl ToolBox {
     }
 
     async fn git_ls(&self, args: Value) -> Result<Value> {
-        let revision = args["revision"]
+        let revision_raw = args["revision"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing revision"))?;
+        let revision_virt = self.virtualize_ref(revision_raw);
+        let revision = revision_virt.as_str();
         let path_str = args["path"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing path"))?;
@@ -921,9 +950,11 @@ impl ToolBox {
     }
 
     async fn git_grep(&self, args: Value) -> Result<Value> {
-        let revision = args["revision"]
+        let revision_raw = args["revision"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing revision"))?;
+        let revision_virt = self.virtualize_ref(revision_raw);
+        let revision = revision_virt.as_str();
         let pattern = args["pattern"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing pattern"))?;
@@ -1024,9 +1055,11 @@ impl ToolBox {
     }
 
     async fn find_files(&self, args: Value) -> Result<Value> {
-        let revision = args["revision"]
+        let revision_raw = args["revision"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing revision"))?;
+        let revision_virt = self.virtualize_ref(revision_raw);
+        let revision = revision_virt.as_str();
         let pattern = args["pattern"]
             .as_str()
             .ok_or_else(|| anyhow!("Missing pattern"))?;

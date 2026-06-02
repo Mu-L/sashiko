@@ -28,6 +28,37 @@ mod tests {
     }
 
     #[test]
+    fn test_virtualize_ref() {
+        let mut toolbox = ToolBox::new(PathBuf::from("."), None);
+
+        // Without virtual HEAD, should return original
+        assert_eq!(toolbox.virtualize_ref("HEAD"), "HEAD");
+        assert_eq!(toolbox.virtualize_ref("HEAD~1"), "HEAD~1");
+        assert_eq!(toolbox.virtualize_ref("origin/HEAD"), "origin/HEAD");
+
+        // Set virtual HEAD
+        toolbox.set_virtual_head("abc123e".to_string());
+
+        // Replacements
+        assert_eq!(toolbox.virtualize_ref("HEAD"), "abc123e");
+        assert_eq!(toolbox.virtualize_ref("HEAD~1"), "abc123e~1");
+        assert_eq!(toolbox.virtualize_ref("HEAD^"), "abc123e^");
+        assert_eq!(
+            toolbox.virtualize_ref("baseline..HEAD"),
+            "baseline..abc123e"
+        );
+        assert_eq!(toolbox.virtualize_ref("HEAD:file.c"), "abc123e:file.c");
+
+        // Non-replacements
+        assert_eq!(toolbox.virtualize_ref("origin/HEAD"), "origin/HEAD");
+        assert_eq!(
+            toolbox.virtualize_ref("refs/remotes/origin/HEAD"),
+            "refs/remotes/origin/HEAD"
+        );
+        assert_eq!(toolbox.virtualize_ref("FOREHEAD"), "FOREHEAD");
+    }
+
+    #[test]
     fn test_git_ls_linux() {
         let (linux_path, _prompts_path) = get_test_paths();
         let toolbox = ToolBox::new(linux_path, None);
@@ -89,6 +120,44 @@ mod tests {
 
         assert!(content.contains("commit"));
         assert!(content.contains("Author:"));
+    }
+
+    #[test]
+    fn test_git_show_virtual_head() {
+        let (linux_path, _prompts_path) = get_test_paths();
+        let mut toolbox = ToolBox::new(linux_path.clone(), None);
+        let rt = Runtime::new().unwrap();
+
+        // Resolve actual HEAD~1 SHA
+        let output = std::process::Command::new("git")
+            .current_dir(&linux_path)
+            .args(["rev-parse", "HEAD~1"])
+            .output()
+            .unwrap();
+        let head_minus_1 = String::from_utf8(output.stdout).unwrap().trim().to_string();
+
+        // Set virtual HEAD to HEAD~1
+        toolbox.set_virtual_head(head_minus_1.clone());
+
+        // Call git_show with "HEAD"
+        let args = json!({ "object": "HEAD" });
+        let result = rt.block_on(toolbox.call("git_show", args)).unwrap();
+        let content = result["content"].as_str().unwrap();
+
+        // The content should match the commit info of HEAD~1 (which is head_minus_1)
+        assert!(content.contains(&head_minus_1));
+
+        // It should NOT contain the current HEAD SHA
+        let output_current = std::process::Command::new("git")
+            .current_dir(&linux_path)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        let current_head = String::from_utf8(output_current.stdout)
+            .unwrap()
+            .trim()
+            .to_string();
+        assert!(!content.contains(&current_head));
     }
     #[test]
     fn test_git_show_file_full() {
