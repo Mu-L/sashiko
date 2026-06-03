@@ -325,3 +325,119 @@ async fn test_message_details_via_api() {
     assert_eq!(body["subject"], "Test Subject");
     assert_eq!(body["body"], "Test body");
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_stats_reviews_endpoint() {
+    let server = spawn_test_server(false).await;
+
+    server
+        .db
+        .conn
+        .execute(
+            "INSERT INTO patchsets (id, status, subject, author, date) \
+             VALUES (1, 'Pending', '[PATCH] test patch', 'Author <a@b.com>', 1234567890)",
+            (),
+        )
+        .await
+        .unwrap();
+
+    // Insert 1005 reviews.
+    // 5 Failed first, then 1000 Reviewed.
+    server.db.begin_transaction().await.unwrap();
+    for i in 1..=5 {
+        server.db.conn.execute(
+            &format!("INSERT INTO reviews (id, patchset_id, status, created_at) VALUES ({}, 1, 'Failed', {})", i, 1234567890 + i),
+            ()
+        ).await.unwrap();
+    }
+    for i in 6..=1005 {
+        let int_id = format!("int-{}", i);
+        server.db.conn.execute(
+            &format!("INSERT INTO ai_interactions (id, tokens_in, tokens_out, tokens_cached) VALUES ('{}', 10, 20, 5)", int_id),
+            ()
+        ).await.unwrap();
+
+        server.db.conn.execute(
+            &format!("INSERT INTO reviews (id, patchset_id, status, interaction_id, created_at) VALUES ({}, 1, 'Reviewed', '{}', {})", i, int_id, 1234567890 + i),
+            ()
+        ).await.unwrap();
+    }
+    server.db.commit_transaction().await.unwrap();
+
+    let resp = reqwest::get(format!("{}/api/stats/reviews", server.base_url))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+
+    assert_eq!(body["total_reviews"], 1005);
+    assert_eq!(body["total_failures"], 5);
+
+    let reviews = body["reviews"].as_array().unwrap();
+    assert_eq!(reviews.len(), 1);
+    let group = &reviews[0];
+    assert_eq!(group["status"], "Reviewed");
+    assert_eq!(group["count"], 1000);
+    assert_eq!(group["tokens_in"], 10000);
+    assert_eq!(group["tokens_out"], 20000);
+    assert_eq!(group["tokens_cached"], 5000);
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_stats_tools_endpoint() {
+    let server = spawn_test_server(false).await;
+
+    server
+        .db
+        .conn
+        .execute(
+            "INSERT INTO patchsets (id, status, subject, author, date) \
+             VALUES (1, 'Pending', '[PATCH] test patch', 'Author <a@b.com>', 1234567890)",
+            (),
+        )
+        .await
+        .unwrap();
+
+    server.db.begin_transaction().await.unwrap();
+    for i in 1..=1005 {
+        server.db.conn.execute(
+            &format!("INSERT INTO reviews (id, patchset_id, status, created_at) VALUES ({}, 1, 'Reviewed', {})", i, 1234567890 + i),
+            ()
+        ).await.unwrap();
+    }
+
+    // Tool usages for reviews 1..5 (should be excluded)
+    for i in 1..=5 {
+        server.db.conn.execute(
+            &format!("INSERT INTO tool_usages (review_id, tool_name, output_length) VALUES ({}, 'old_tool', 100)", i),
+            ()
+        ).await.unwrap();
+    }
+
+    // Tool usages for reviews 6..10 (should be included)
+    for i in 6..=10 {
+        server.db.conn.execute(
+            &format!("INSERT INTO tool_usages (review_id, tool_name, output_length) VALUES ({}, 'new_tool', 200)", i),
+            ()
+        ).await.unwrap();
+    }
+    server.db.commit_transaction().await.unwrap();
+
+    let resp = reqwest::get(format!("{}/api/stats/tools", server.base_url))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let tools = body.as_array().unwrap();
+
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0]["tool"], "new_tool");
+    assert_eq!(tools[0]["count"], 5);
+    assert_eq!(tools[0]["avg_output_length"], 200.0);
+}

@@ -1179,7 +1179,36 @@ impl Database {
     }
 
     pub async fn get_review_stats(&self) -> Result<serde_json::Value> {
-        let sql = "SELECT
+        let mut total_rows = self
+            .conn
+            .query(
+                "SELECT count(*) FROM reviews WHERE status NOT IN ('Pending', 'In Review')",
+                (),
+            )
+            .await?;
+        let total_reviews: i64 = if let Ok(Some(row)) = total_rows.next().await {
+            row.get(0).unwrap_or(0)
+        } else {
+            0
+        };
+
+        let mut failed_rows = self
+            .conn
+            .query(
+                "SELECT count(*) FROM reviews WHERE status NOT IN ('Pending', 'In Review') AND (lower(status) LIKE '%failed%' OR lower(status) LIKE '%error%')",
+                (),
+            )
+            .await?;
+        let total_failures: i64 = if let Ok(Some(row)) = failed_rows.next().await {
+            row.get(0).unwrap_or(0)
+        } else {
+            0
+        };
+
+        let sql = "WITH last_reviews AS (
+            SELECT * FROM reviews ORDER BY id DESC LIMIT 1000
+        )
+        SELECT
             r.provider,
             r.model,
             r.status,
@@ -1187,7 +1216,7 @@ impl Database {
             sum(COALESCE(ai.tokens_in, 0)),
             sum(COALESCE(ai.tokens_out, 0)),
             sum(COALESCE(ai.tokens_cached, 0))
-        FROM reviews r
+        FROM last_reviews r
         LEFT JOIN ai_interactions ai INDEXED BY idx_ai_interactions_tokens ON r.interaction_id = ai.id
         GROUP BY r.provider, r.model, r.status";
 
@@ -1213,18 +1242,22 @@ impl Database {
                 "tokens_cached": tokens_cached
             }));
         }
-        Ok(json!(stats))
+
+        Ok(json!({
+            "total_reviews": total_reviews,
+            "total_failures": total_failures,
+            "reviews": stats
+        }))
     }
 
     pub async fn get_tool_usage_stats(&self) -> Result<serde_json::Value> {
-        let sql = "SELECT provider, model, tool_name, count(*), avg(output_length) \
-                   FROM ( \
-                       SELECT provider, model, tool_name, output_length \
-                       FROM tool_usages \
-                       ORDER BY id DESC \
-                       LIMIT 10000 \
+        let sql = "WITH last_reviews AS ( \
+                       SELECT id FROM reviews ORDER BY id DESC LIMIT 1000 \
                    ) \
-                   GROUP BY provider, model, tool_name";
+                   SELECT tu.provider, tu.model, tu.tool_name, count(*), avg(tu.output_length) \
+                   FROM tool_usages tu \
+                   JOIN last_reviews r ON tu.review_id = r.id \
+                   GROUP BY tu.provider, tu.model, tu.tool_name";
         let mut rows = self.conn.query(sql, ()).await?;
         let mut stats = Vec::new();
         while let Ok(Some(row)) = rows.next().await {
