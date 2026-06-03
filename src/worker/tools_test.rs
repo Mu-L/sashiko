@@ -129,15 +129,37 @@ mod tests {
         assert!(content.contains("Author:"));
     }
 
+    fn setup_test_repo() -> (tempfile::TempDir, PathBuf) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let repo_path = temp_dir.path().to_path_buf();
+
+        let run_git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .current_dir(&repo_path)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        };
+
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "Test User"]);
+        run_git(&["config", "user.email", "test@example.com"]);
+        run_git(&["commit", "--allow-empty", "-m", "Initial commit"]);
+        run_git(&["commit", "--allow-empty", "-m", "Second commit"]);
+
+        (temp_dir, repo_path)
+    }
+
     #[test]
     fn test_git_show_virtual_head() {
-        let (linux_path, _prompts_path) = get_test_paths();
-        let mut toolbox = ToolBox::new(linux_path.clone(), None);
+        let (_temp_dir, repo_path) = setup_test_repo();
+        let mut toolbox = ToolBox::new(repo_path.clone(), None);
         let rt = Runtime::new().unwrap();
 
         // Resolve actual HEAD~1 SHA
         let output = std::process::Command::new("git")
-            .current_dir(&linux_path)
+            .current_dir(&repo_path)
             .args(["rev-parse", "HEAD~1"])
             .output()
             .unwrap();
@@ -156,7 +178,7 @@ mod tests {
 
         // It should NOT contain the current HEAD SHA
         let output_current = std::process::Command::new("git")
-            .current_dir(&linux_path)
+            .current_dir(&repo_path)
             .args(["rev-parse", "HEAD"])
             .output()
             .unwrap();
