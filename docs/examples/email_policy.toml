@@ -23,3 +23,8 @@ cc = []
 # A list of author email addresses that will be completely ignored by the system,
 # meaning their submissions will never be considered as patches and will never be reviewed.
 ignored_emails = []
+
+# Whether to send an email even when no issues are found.
+# If true, Sashiko will send a reply indicating that the review was positive.
+send_positive_review = false
+

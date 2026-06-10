@@ -390,4 +390,72 @@ mod tests {
             Action::Mute => panic!("Should not mute"),
         }
     }
+
+    #[test]
+    fn test_send_positive_review() {
+        let mut policy = build_test_policy();
+
+        // Test 1: Defaults has it true, and we fallback to defaults
+        policy.defaults.send_positive_review = true;
+        let action = EmailRouter::resolve_recipients(
+            &policy,
+            &["unknown-list@vger.kernel.org".to_string()],
+            &[],
+            "author@test.com",
+            "bot@sashiko.dev",
+        );
+        match action {
+            Action::Send {
+                send_positive_review,
+                ..
+            } => {
+                assert!(send_positive_review);
+            }
+            _ => panic!("Expected Send"),
+        }
+
+        // Test 2: Subsystem has it true
+        policy.defaults.send_positive_review = false;
+        if let Some(sub) = policy.subsystems.get_mut("mm") {
+            sub.send_positive_review = true;
+        }
+        let action = EmailRouter::resolve_recipients(
+            &policy,
+            &["linux-mm@kvack.org".to_string()],
+            &[],
+            "author@test.com",
+            "bot@sashiko.dev",
+        );
+        match action {
+            Action::Send {
+                send_positive_review,
+                ..
+            } => {
+                assert!(send_positive_review);
+            }
+            _ => panic!("Expected Send"),
+        }
+
+        // Test 3: Subsystem has it false, defaults has it true (should be false because subsystem matches and overrides)
+        policy.defaults.send_positive_review = true;
+        if let Some(sub) = policy.subsystems.get_mut("mm") {
+            sub.send_positive_review = false;
+        }
+        let action = EmailRouter::resolve_recipients(
+            &policy,
+            &["linux-mm@kvack.org".to_string()],
+            &[],
+            "author@test.com",
+            "bot@sashiko.dev",
+        );
+        match action {
+            Action::Send {
+                send_positive_review,
+                ..
+            } => {
+                assert!(!send_positive_review);
+            }
+            _ => panic!("Expected Send"),
+        }
+    }
 }

@@ -84,12 +84,14 @@ mod tests {
             reply_all = true
             reply_to_author = true
             cc_individuals = true
+            send_positive_review = true
 
             [subsystems.bpf]
             lists = ["bpf@vger.kernel.org"]
             reply_all = false
             reply_to_author = true
             cc_individuals = false
+            send_positive_review = false
 
             [subsystems.net]
             lists = ["netdev@vger.kernel.org"]
@@ -108,6 +110,7 @@ mod tests {
         assert!(!config.defaults.reply_all);
         assert!(config.defaults.reply_to_author);
         assert!(!config.defaults.patchwork.enabled);
+        assert!(!config.defaults.send_positive_review);
 
         let mm_policy = config.subsystems.get("mm").expect("mm subsystem missing");
         assert_eq!(
@@ -116,11 +119,13 @@ mod tests {
         );
         assert!(mm_policy.reply_all);
         assert!(!mm_policy.patchwork.enabled);
+        assert!(mm_policy.send_positive_review);
 
         let bpf_policy = config.subsystems.get("bpf").expect("bpf subsystem missing");
         assert!(!bpf_policy.reply_all);
         assert!(bpf_policy.reply_to_author);
         assert!(!bpf_policy.cc_individuals);
+        assert!(!bpf_policy.send_positive_review);
 
         let net_policy = config.subsystems.get("net").expect("net subsystem missing");
         assert!(net_policy.mute_all);
