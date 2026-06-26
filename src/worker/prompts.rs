@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::ai::{
-    AiErrorClass, AiMessage, AiProvider, AiRequest, AiResponseFormat, AiRole, ClassifyAiError,
+    AiErrorClass, AiMessage, AiProvider, AiRequest, AiResponse, AiResponseFormat, AiRole, AiTool,
+    ClassifyAiError, ErrorAction, LlmSession, SessionRunner, ValidationError,
 };
 use crate::toolbox::ToolBox;
 use anyhow::{Context, Result};
@@ -872,9 +873,8 @@ You MUST respond with ONLY a JSON object, no other text. Example:
         let deduplicated_dismissed_concerns;
         {
             let stage = 8;
-            let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
+            let (stage_prompt, _) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
-            let clean_system_prompt = clean_shared_context.clone();
 
             let aggregated_concerns_json =
                 serde_json::to_string_pretty(&all_concerns).unwrap_or_default();
@@ -935,109 +935,45 @@ Example Output:
 ```"#,
                 stage_prompt, aggregated_concerns_json, aggregated_dismissed_concerns_json
             );
+
             let clean_user_prompt = format!(
                 r#"{}
 
-Aggregated Concerns:
+Consolidated Concerns:
 {}
 
-Aggregated Dismissed Concerns:
+Consolidated Dismissed Concerns:
 {}
 
 Return ONLY a JSON object with 'concerns' and 'dismissed_concerns' arrays.
 Each object in the 'concerns' array MUST use exactly the following keys: "type", "description", "reasoning", "preexisting", "locations".
 Each object in the 'dismissed_concerns' array MUST use exactly the following keys: "type", "description", "reasoning", "locations".
-Preserve the most precise location details from the input. Do not invent line numbers; use null when exact values are unknown.
-
-Example Output:
-```json
-{{
-  "concerns": [
-    {{
-      "type": "Memory Leak",
-      "description": "Memory leak in function X",
-      "reasoning": "1. X is called.\n2. Y is allocated but not freed on error path.",
-      "preexisting": false,
-      "locations": [
-        {{
-          "file": "path/to/file.c",
-          "function_or_symbol": "function_name",
-          "line": 123,
-          "code_snippet": "problematic_code();",
-          "why_this_location_matters": "This is where the newly allocated resource is dropped on the error path."
-        }}
-      ]
-    }}
-  ],
-  "dismissed_concerns": [
-    {{
-      "type": "Resource Management",
-      "description": "Possible missing cleanup when foo_init() fails after bar_alloc().",
-      "reasoning": "The concrete code path or ordering that proves this candidate concern does not apply.",
-      "locations": [
-        {{
-          "file": "path/to/file.c",
-          "function_or_symbol": "function_name",
-          "line": 125,
-          "code_snippet": "safe_code_path();",
-          "why_this_location_matters": "This is where the cleanup path proves the candidate leak does not apply."
-        }}
-      ]
-    }}
-  ]
-}}
-```"#,
-                clean_stage_prompt, aggregated_concerns_json, aggregated_dismissed_concerns_json
+Preserve the most precise location details from the input. Do not invent line numbers; use null when exact values are unknown."#,
+                stage_prompt, aggregated_concerns_json, aggregated_dismissed_concerns_json
             );
 
-            match self
-                .run_ai_stage(
-                    stage,
-                    system_prompt,
-                    clean_system_prompt,
-                    user_prompt,
-                    clean_user_prompt,
-                )
-                .await
-            {
-                Ok((result_json, t_in, t_out, t_cached, stage_history)) => {
-                    total_tokens_in += t_in;
-                    total_tokens_out += t_out;
-                    total_tokens_cached += t_cached;
-                    self.global_history.extend(stage_history);
+            let mut session = ReviewStageSession::new(
+                stage,
+                system_prompt,
+                user_prompt,
+                clean_user_prompt,
+                self.tools.clone(),
+                self.temperature,
+                self.context_tag.as_deref(),
+            );
+            let runner = SessionRunner::new(self.provider.as_ref())
+                .with_max_validation_attempts(3)
+                .with_max_turns(self.max_interactions);
+            let result = runner.run(&mut session).await?;
 
-                    if let Some(c) = result_json.get("concerns") {
-                        if c.is_array() {
-                            deduplicated_concerns = c.clone();
-                        } else {
-                            return Err(anyhow::anyhow!(
-                                "Stage 8 output 'concerns' is not an array"
-                            ));
-                        }
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Stage 8 failed to produce a valid 'concerns' array in output."
-                        ));
-                    }
+            total_tokens_in += result.usage.prompt_tokens as u32;
+            total_tokens_out += result.usage.completion_tokens as u32;
+            total_tokens_cached += result.usage.cached_tokens.unwrap_or(0) as u32;
+            self.global_history.extend(result.history);
 
-                    if let Some(c) = result_json.get("dismissed_concerns") {
-                        if c.is_array() {
-                            deduplicated_dismissed_concerns = c.clone();
-                        } else {
-                            return Err(anyhow::anyhow!(
-                                "Stage 8 output 'dismissed_concerns' is not an array"
-                            ));
-                        }
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Stage 8 failed to produce a valid 'dismissed_concerns' array in output."
-                        ));
-                    }
-                }
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Stage 8 AI execution failed: {}", e));
-                }
-            }
+            deduplicated_concerns = result.output.get("concerns").unwrap().clone();
+            deduplicated_dismissed_concerns =
+                result.output.get("dismissed_concerns").unwrap().clone();
         }
 
         if let Some(c) = deduplicated_concerns.as_array()
@@ -1076,7 +1012,6 @@ Example Output:
             let stage = 9;
             let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
-            let clean_system_prompt = clean_shared_context.clone();
 
             let deduplicated_concerns_json =
                 serde_json::to_string_pretty(&deduplicated_concerns).unwrap_or_default();
@@ -1119,6 +1054,7 @@ Example Output:
 ```"#,
                 stage_prompt, deduplicated_concerns_json, deduplicated_dismissed_concerns_json
             );
+
             let clean_user_prompt = format!(
                 r#"{}
 
@@ -1158,40 +1094,26 @@ Example Output:
                 deduplicated_dismissed_concerns_json
             );
 
-            match self
-                .run_ai_stage(
-                    stage,
-                    system_prompt,
-                    clean_system_prompt,
-                    user_prompt,
-                    clean_user_prompt,
-                )
-                .await
-            {
-                Ok((result_json, t_in, t_out, t_cached, stage_history)) => {
-                    total_tokens_in += t_in;
-                    total_tokens_out += t_out;
-                    total_tokens_cached += t_cached;
-                    self.global_history.extend(stage_history);
+            let mut session = ReviewStageSession::new(
+                stage,
+                system_prompt,
+                user_prompt,
+                clean_user_prompt,
+                self.tools.clone(),
+                self.temperature,
+                self.context_tag.as_deref(),
+            );
+            let runner = SessionRunner::new(self.provider.as_ref())
+                .with_max_validation_attempts(3)
+                .with_max_turns(self.max_interactions);
+            let result = runner.run(&mut session).await?;
 
-                    if let Some(c) = result_json.get("concerns") {
-                        if c.is_array() {
-                            conflict_resolved_concerns = c.clone();
-                        } else {
-                            return Err(anyhow::anyhow!(
-                                "Stage 9 output 'concerns' is not an array"
-                            ));
-                        }
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Stage 9 failed to produce a valid 'concerns' array in output."
-                        ));
-                    }
-                }
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Stage 9 AI execution failed: {}", e));
-                }
-            }
+            total_tokens_in += result.usage.prompt_tokens as u32;
+            total_tokens_out += result.usage.completion_tokens as u32;
+            total_tokens_cached += result.usage.cached_tokens.unwrap_or(0) as u32;
+            self.global_history.extend(result.history);
+
+            conflict_resolved_concerns = result.output.get("concerns").unwrap().clone();
         }
 
         if let Some(c) = conflict_resolved_concerns.as_array()
@@ -1230,7 +1152,6 @@ Example Output:
             let stage = 10;
             let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
-            let clean_system_prompt = clean_shared_context.clone();
 
             let full_series_context = if let Some(range) = &self.series_range {
                 let cmd_output = std::process::Command::new("git")
@@ -1269,44 +1190,32 @@ Example Output:
                 "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.\n\nFull Series Context:\n{}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset), \"locations\" (an array of objects with file, function_or_symbol, line, code_snippet, and why_this_location_matters). Carry forward the locations from the validated concern; if you gather better evidence, replace vague locations with the most precise verified locations. Do not invent line numbers; use null when exact values are unknown.\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false,\n      \"locations\": [\n        {{\n          \"file\": \"path/to/file.c\",\n          \"function_or_symbol\": \"function_name\",\n          \"line\": 123,\n          \"code_snippet\": \"problematic_code();\",\n          \"why_this_location_matters\": \"This is where the newly allocated resource is dropped on the error path.\"\n        }}\n      ]\n    }}\n  ]\n}}\n```",
                 stage_prompt, full_series_context, conflict_resolved_concerns_json
             );
+
             let clean_user_prompt = format!(
                 "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.\n\nFull Series Context:\n{{{{series context}}}}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset), \"locations\" (an array of objects with file, function_or_symbol, line, code_snippet, and why_this_location_matters). Carry forward the locations from the validated concern; if you gather better evidence, replace vague locations with the most precise verified locations. Do not invent line numbers; use null when exact values are unknown.\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false,\n      \"locations\": [\n        {{\n          \"file\": \"path/to/file.c\",\n          \"function_or_symbol\": \"function_name\",\n          \"line\": 123,\n          \"code_snippet\": \"problematic_code();\",\n          \"why_this_location_matters\": \"This is where the newly allocated resource is dropped on the error path.\"\n        }}\n      ]\n    }}\n  ]\n}}\n```",
                 clean_stage_prompt, conflict_resolved_concerns_json
             );
-            match self
-                .run_ai_stage(
-                    stage,
-                    system_prompt,
-                    clean_system_prompt,
-                    user_prompt,
-                    clean_user_prompt,
-                )
-                .await
-            {
-                Ok((result_json, t_in, t_out, t_cached, stage_history)) => {
-                    total_tokens_in += t_in;
-                    total_tokens_out += t_out;
-                    total_tokens_cached += t_cached;
-                    self.global_history.extend(stage_history);
 
-                    if let Some(f) = result_json.get("findings") {
-                        if f.is_array() {
-                            findings_json = f.clone();
-                        } else {
-                            return Err(anyhow::anyhow!(
-                                "Stage 10 output 'findings' is not an array"
-                            ));
-                        }
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Stage 10 failed to produce a valid 'findings' array in output."
-                        ));
-                    }
-                }
-                Err(e) => {
-                    return Err(anyhow::anyhow!("Stage 10 AI execution failed: {}", e));
-                }
-            }
+            let mut session = ReviewStageSession::new(
+                stage,
+                system_prompt,
+                user_prompt,
+                clean_user_prompt,
+                self.tools.clone(),
+                self.temperature,
+                self.context_tag.as_deref(),
+            );
+            let runner = SessionRunner::new(self.provider.as_ref())
+                .with_max_validation_attempts(3)
+                .with_max_turns(self.max_interactions);
+            let result = runner.run(&mut session).await?;
+
+            total_tokens_in += result.usage.prompt_tokens as u32;
+            total_tokens_out += result.usage.completion_tokens as u32;
+            total_tokens_cached += result.usage.cached_tokens.unwrap_or(0) as u32;
+            self.global_history.extend(result.history);
+
+            findings_json = result.output.get("findings").unwrap().clone();
         }
 
         if let Some(f) = findings_json.as_array()
@@ -1338,12 +1247,11 @@ Example Output:
 
         // Stage 11
         info!("Running Stage 11");
-        let mut review_inline_text = String::new();
+        let review_inline_text;
         {
             let stage = 11;
             let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
-            let clean_system_prompt = clean_shared_context.clone();
             let findings_str = serde_json::to_string_pretty(&findings_json).unwrap_or_default();
             let user_prompt = format!(
                 "{}\n\nFindings:\n{}\n\nReturn raw text output, not JSON.",
@@ -1353,88 +1261,27 @@ Example Output:
                 "{}\n\nFindings:\n{}\n\nReturn raw text output, not JSON.",
                 clean_stage_prompt, findings_str
             );
-            let max_retries = 3;
-            let mut retries = 0;
-            // On format rejection we augment the prompt rather than repeating
-            // it verbatim, so track the active prompt separately.
-            let mut active_user_prompt = user_prompt.clone();
-            let mut active_clean_user_prompt = clean_user_prompt.clone();
-            let mut free_form_mode = false;
-            while retries < max_retries {
-                match self
-                    .run_ai_stage_raw(
-                        stage,
-                        system_prompt.clone(),
-                        clean_system_prompt.clone(),
-                        active_user_prompt.clone(),
-                        active_clean_user_prompt.clone(),
-                    )
-                    .await
-                {
-                    Ok((result_text, t_in, t_out, t_cached, stage_history)) => {
-                        total_tokens_in += t_in;
-                        total_tokens_out += t_out;
-                        total_tokens_cached += t_cached;
-                        self.global_history.extend(stage_history);
-                        if free_form_mode {
-                            review_inline_text = result_text;
-                            break;
-                        } else {
-                            match validate_inline_format(&result_text) {
-                                Ok(_) => {
-                                    review_inline_text = result_text;
-                                    break;
-                                }
-                                Err(violation) => {
-                                    tracing::warn!(
-                                        "Stage 11 format validation failed (attempt {}/{}): {}. Retrying with augmented prompt.",
-                                        retries + 1,
-                                        max_retries,
-                                        violation
-                                    );
-                                    let reminder = format!(
-                                        "\n\nPrevious attempt was rejected: {violation}. Strictly follow the formatting rules."
-                                    );
-                                    active_user_prompt = format!("{}{}", user_prompt, reminder);
-                                    active_clean_user_prompt =
-                                        format!("{}{}", clean_user_prompt, reminder);
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let err_str = e.to_string();
-                        tracing::warn!(
-                            "Stage 11 failed (attempt {}/{}): {}",
-                            retries + 1,
-                            max_retries,
-                            err_str
-                        );
-                        if err_str.contains("RECITATION") && !free_form_mode {
-                            tracing::warn!(
-                                "Recitation error detected. Falling back to free-form mode."
-                            );
-                            free_form_mode = true;
-                            let fallback_reminder = "\n\nCRITICAL: The previous attempt failed due to a RECITATION policy violation. Do NOT quote the original patch code at all. Instead, provide a free-form summary of the findings. Start your report with a note explaining that the format is altered due to recitation restrictions. Do not use the inline quoting style `>`.";
-                            active_user_prompt = format!("{}{}", user_prompt, fallback_reminder);
-                            active_clean_user_prompt =
-                                format!("{}{}", clean_user_prompt, fallback_reminder);
-                            // Optionally don't penalize the retry count for the first recitation error
-                            if retries + 1 == max_retries {
-                                retries -= 1;
-                            }
-                        }
-                    }
-                }
-                retries += 1;
-            }
 
-            if review_inline_text.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "Stage 11 failed to generate a valid LKML report after {} attempts.",
-                    max_retries
-                ));
-            }
+            let mut session = ReviewStageSession::new(
+                stage,
+                system_prompt,
+                user_prompt,
+                clean_user_prompt,
+                self.tools.clone(),
+                self.temperature,
+                self.context_tag.as_deref(),
+            );
+            let runner = SessionRunner::new(self.provider.as_ref())
+                .with_max_validation_attempts(3)
+                .with_max_turns(self.max_interactions);
+            let result = runner.run(&mut session).await?;
+
+            total_tokens_in += result.usage.prompt_tokens as u32;
+            total_tokens_out += result.usage.completion_tokens as u32;
+            total_tokens_cached += result.usage.cached_tokens.unwrap_or(0) as u32;
+            self.global_history.extend(result.history);
+
+            review_inline_text = result.output.as_str().unwrap().to_string();
         }
 
         let fixes_text = String::new();
@@ -1462,227 +1309,6 @@ Example Output:
             tokens_out: total_tokens_out,
             tokens_cached: total_tokens_cached,
         })
-    }
-
-    async fn run_ai_stage(
-        &self,
-        stage: u8,
-        system_prompt: String,
-        clean_system_prompt: String,
-        user_prompt: String,
-        clean_user_prompt: String,
-    ) -> Result<(Value, u32, u32, u32, Vec<AiMessage>)> {
-        let (raw_text, t_in, t_out, t_cached, stage_history) = self
-            .run_ai_stage_raw(
-                stage,
-                system_prompt,
-                clean_system_prompt,
-                user_prompt,
-                clean_user_prompt,
-            )
-            .await?;
-        let cleaned = crate::utils::clean_json_string(&raw_text);
-        let parsed: Value = serde_json::from_str(&cleaned).unwrap_or_else(|_| {
-            let cands = find_json_candidates(&raw_text);
-            cands.into_iter().last().unwrap_or(json!({}))
-        });
-        Ok((parsed, t_in, t_out, t_cached, stage_history))
-    }
-
-    async fn run_ai_stage_raw(
-        &self,
-        _stage: u8,
-        system_prompt: String,
-        _clean_system_prompt: String,
-        user_prompt: String,
-        clean_user_prompt: String,
-    ) -> Result<(String, u32, u32, u32, Vec<AiMessage>)> {
-        let mut stage_action_history = Vec::new();
-        let mut stage_history = Vec::new();
-        let mut local_history = Vec::new();
-
-        let user_msg = AiMessage {
-            role: AiRole::User,
-            content: Some(user_prompt.clone()),
-            thought: None,
-            thought_signature: None,
-            tool_calls: None,
-            tool_call_id: None,
-        };
-        local_history.push(user_msg.clone());
-
-        stage_history.push(AiMessage {
-            role: AiRole::User,
-            content: Some(clean_user_prompt),
-            thought: None,
-            thought_signature: None,
-            tool_calls: None,
-            tool_call_id: None,
-        });
-
-        let mut turns = 0;
-        let mut t_in = 0;
-        let mut t_out = 0;
-        let mut t_cached = 0;
-        let mut recitation_retries = 0;
-
-        let tools_ref = self.tools.clone();
-
-        loop {
-            turns += 1;
-            if turns > self.max_interactions {
-                break;
-            }
-
-            let request = crate::ai::AiRequest {
-                system: Some(system_prompt.clone()),
-                messages: local_history.clone(),
-                tools: Some(self.tools.get_declarations_generic()),
-                temperature: Some(self.temperature),
-
-                response_format: None,
-                context_tag: self
-                    .context_tag
-                    .as_ref()
-                    .map(|prefix| format!("{} s:{}] ", &prefix[..prefix.len() - 2], _stage)),
-            };
-
-            let resp = match self.provider.generate_content(request).await {
-                Ok(r) => r,
-                Err(e) => {
-                    let err_msg = e.to_string();
-                    if (err_msg.contains("RECITATION") || err_msg.contains("blocked"))
-                        && recitation_retries < 3
-                    {
-                        recitation_retries += 1;
-                        tracing::warn!(
-                            "Turn-level recitation block detected. Injecting safety reminder and retrying turn (attempt {}/3)",
-                            recitation_retries
-                        );
-                        let reminder = "IMPORTANT: Your previous response was blocked by a recitation filter. Please ensure you do NOT copy large blocks of code verbatim. Describe logic in prose or simple expressions. Please try generating your response again.";
-                        let reminder_msg = AiMessage {
-                            role: AiRole::User,
-                            content: Some(reminder.to_string()),
-                            thought: None,
-                            thought_signature: None,
-                            tool_calls: None,
-                            tool_call_id: None,
-                        };
-                        local_history.push(reminder_msg);
-                        turns = turns.saturating_sub(1);
-                        continue;
-                    } else {
-                        return Err(e);
-                    }
-                }
-            };
-
-            if resp.truncated {
-                return Err(ReviewError::OutputTruncated.into());
-            }
-
-            if let Some(usage) = &resp.usage {
-                t_in += usage.prompt_tokens as u32;
-                t_out += usage.completion_tokens as u32;
-                t_cached += usage.cached_tokens.unwrap_or(0) as u32;
-            }
-
-            let assistant_msg = AiMessage {
-                role: AiRole::Assistant,
-                content: resp.content.clone(),
-                thought: resp.thought.clone(),
-                thought_signature: resp.thought_signature.clone(),
-                tool_calls: resp.tool_calls.clone(),
-                tool_call_id: None,
-            };
-            local_history.push(assistant_msg.clone());
-            stage_history.push(assistant_msg);
-
-            if let Some(tool_calls) = resp.tool_calls {
-                let mut tool_responses_map = std::collections::HashMap::new();
-                let mut calls_to_run = Vec::new();
-
-                for call in &tool_calls {
-                    let name = call.function_name.clone();
-                    let args = call.arguments.clone();
-                    let call_id = call.id.clone();
-
-                    let is_duplicate = stage_action_history
-                        .last()
-                        .map(|(last_name, last_args)| last_name == &name && last_args == &args)
-                        .unwrap_or(false);
-
-                    if is_duplicate {
-                        warn!("Blocked duplicate tool call: {} with args {:?}", name, args);
-                        tool_responses_map.insert(call_id.clone(), AiMessage {
-                            role: AiRole::Tool,
-                            content: Some(json!({
-                                "error": "Duplicate tool call blocked. Please change parameters or use a different tool."
-                            }).to_string()),
-                            thought: None,
-                            thought_signature: None,
-                            tool_calls: None,
-                            tool_call_id: Some(call_id),
-                        });
-                    } else {
-                        stage_action_history.push((name.clone(), args.clone()));
-                        calls_to_run.push((call_id, name, args));
-                    }
-                }
-
-                let futures: Vec<_> = calls_to_run
-                    .into_iter()
-                    .map(|(call_id, name, args)| {
-                        let tools = tools_ref.clone();
-                        async move {
-                            let res = match tools.call(&name, args).await {
-                                Ok(v) => v.to_string(),
-                                Err(e) => json!({"error": e.to_string()}).to_string(),
-                            };
-                            (call_id, res)
-                        }
-                    })
-                    .collect();
-
-                let results = futures::future::join_all(futures).await;
-
-                for (call_id, result) in results {
-                    tool_responses_map.insert(
-                        call_id.clone(),
-                        AiMessage {
-                            role: AiRole::Tool,
-                            content: Some(result),
-                            thought: None,
-                            thought_signature: None,
-                            tool_calls: None,
-                            tool_call_id: Some(call_id),
-                        },
-                    );
-                }
-
-                let mut tool_responses = Vec::with_capacity(tool_calls.len());
-                for call in tool_calls {
-                    if let Some(resp_msg) = tool_responses_map.remove(&call.id) {
-                        tool_responses.push(resp_msg);
-                    }
-                }
-
-                local_history.extend(tool_responses.clone());
-                stage_history.extend(tool_responses);
-            } else if resp.content.is_some() || resp.thought.is_some() {
-                return Ok((
-                    resp.content.unwrap_or_default(),
-                    t_in,
-                    t_out,
-                    t_cached,
-                    stage_history,
-                ));
-            } else {
-                return Err(anyhow::anyhow!("No content or tool calls from AI"));
-            }
-        }
-
-        Err(ReviewError::LimitExceeded.into())
     }
 
     async fn json_request(
@@ -1787,7 +1413,7 @@ Example Output:
         &self,
         stage: u8,
         system_prompt: String,
-        clean_system_prompt: String,
+        _clean_system_prompt: String,
     ) -> Result<StageExecutionResult> {
         info!("Running Stage {}", stage);
         let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
@@ -1852,116 +1478,44 @@ Example:
         let user_prompt = format!("{}\n\n{}", stage_prompt, format_guidance);
         let clean_user_prompt = format!("{}\n\n{}", clean_stage_prompt, format_guidance);
 
-        let mut total_tokens_in = 0;
-        let mut total_tokens_out = 0;
-        let mut total_tokens_cached = 0;
+        let mut session = ReviewStageSession::new(
+            stage,
+            system_prompt,
+            user_prompt,
+            clean_user_prompt,
+            self.tools.clone(),
+            self.temperature,
+            self.context_tag.as_deref(),
+        );
+
+        let runner = SessionRunner::new(self.provider.as_ref())
+            .with_max_validation_attempts(3)
+            .with_max_turns(self.max_interactions);
+
+        let result = runner.run(&mut session).await?;
 
         let mut concerns_out = Vec::new();
         let mut dismissed_concerns_out = Vec::new();
-        let mut final_history = Vec::new();
 
-        let mut outer_attempts = 0;
-        let max_outer_attempts = 3;
-        let mut success = false;
-
-        while outer_attempts < max_outer_attempts && !success {
-            outer_attempts += 1;
-
-            let mut inner_attempts = 0;
-            let max_inner_attempts = 3;
-            let mut active_user_prompt = user_prompt.clone();
-            let mut active_clean_user_prompt = clean_user_prompt.clone();
-
-            while inner_attempts < max_inner_attempts && !success {
-                inner_attempts += 1;
-                match self
-                    .run_ai_stage(
-                        stage,
-                        system_prompt.clone(),
-                        clean_system_prompt.clone(),
-                        active_user_prompt.clone(),
-                        active_clean_user_prompt.clone(),
-                    )
-                    .await
-                {
-                    Ok((result_json, t_in, t_out, t_cached, stage_history)) => {
-                        total_tokens_in += t_in;
-                        total_tokens_out += t_out;
-                        total_tokens_cached += t_cached;
-                        final_history = stage_history;
-
-                        match required_stage_arrays(&result_json) {
-                            Ok((concerns, dismissed_concerns)) => {
-                                concerns_out = concerns.to_vec();
-                                dismissed_concerns_out = dismissed_concerns.to_vec();
-                                success = true;
-                            }
-                            Err(violation) => {
-                                tracing::warn!(
-                                    "Stage {} format validation failed (inner attempt {}/{}): {}. Retrying with augmented prompt.",
-                                    stage,
-                                    inner_attempts,
-                                    max_inner_attempts,
-                                    violation
-                                );
-                                let reminder = format!(
-                                    "\n\nPrevious attempt was rejected: {violation}. You MUST return ONLY a JSON object containing 'concerns' and 'dismissed_concerns' arrays. If there are no concerns and no dismissed concerns, return `{{\"concerns\": [], \"dismissed_concerns\": []}}`."
-                                );
-                                active_user_prompt = format!("{}{}", user_prompt, reminder);
-                                active_clean_user_prompt =
-                                    format!("{}{}", clean_user_prompt, reminder);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        if e.downcast_ref::<ReviewError>().is_some() {
-                            warn!("Stage {} hit non-retryable error: {}", stage, e);
-                            return Err(e);
-                        }
-                        warn!(
-                            "Stage {} AI execution failed (inner attempt {}/{}): {}",
-                            stage, inner_attempts, max_inner_attempts, e
-                        );
-
-                        let err_msg = e.to_string();
-                        if err_msg.contains("RECITATION") || err_msg.contains("blocked") {
-                            let reminder = "\n\nIMPORTANT: Your previous response was blocked by a recitation filter. Please ensure you do NOT copy large blocks of code verbatim in your response. Describe code changes in prose, or use highly simplified pseudo-code if you must show code structure.";
-                            active_user_prompt = format!("{}{}", active_user_prompt, reminder);
-                            active_clean_user_prompt =
-                                format!("{}{}", active_clean_user_prompt, reminder);
-                        }
-                    }
-                }
-            }
-
-            if !success {
-                warn!(
-                    "Stage {} outer attempt {}/{} failed to produce valid output.",
-                    stage, outer_attempts, max_outer_attempts
-                );
-            }
+        if let Some(c) = result.output.get("concerns").and_then(|v| v.as_array()) {
+            concerns_out = c.clone();
         }
-
-        if !success {
-            warn!(
-                "Stage {} failed after {} outer attempts.",
-                stage, max_outer_attempts
-            );
-            return Err(anyhow::anyhow!(
-                "Stage {} failed to produce valid 'concerns' and 'dismissed_concerns' arrays after {} attempts — aborting review",
-                stage,
-                max_outer_attempts
-            ));
+        if let Some(c) = result
+            .output
+            .get("dismissed_concerns")
+            .and_then(|v| v.as_array())
+        {
+            dismissed_concerns_out = c.clone();
         }
 
         Ok(StageExecutionResult {
             stage,
             concerns: concerns_out,
             dismissed_concerns: dismissed_concerns_out,
-            tokens_in: total_tokens_in,
-            tokens_out: total_tokens_out,
-            tokens_cached: total_tokens_cached,
-            history: final_history,
+            tokens_in: result.usage.prompt_tokens as u32,
+            tokens_out: result.usage.completion_tokens as u32,
+            tokens_cached: result.usage.cached_tokens.unwrap_or(0) as u32,
+            history: result.history,
         })
     }
 }
@@ -2112,6 +1666,305 @@ fn find_matching_brace(chars: &[char], start: usize) -> Option<usize> {
         }
     }
     None
+}
+
+struct ReviewStageSession {
+    stage: u8,
+    system_prompt: String,
+    user_prompt: String,
+    clean_user_prompt: String,
+    tools: std::sync::Arc<ToolBox>,
+    temperature: f32,
+    context_tag: Option<String>,
+    free_form_mode: bool,
+    last_tool_call: Option<(String, Value)>,
+    recitation_retries: usize,
+}
+
+impl ReviewStageSession {
+    fn new(
+        stage: u8,
+        system_prompt: String,
+        user_prompt: String,
+        clean_user_prompt: String,
+        tools: std::sync::Arc<ToolBox>,
+        temperature: f32,
+        context_prefix: Option<&str>,
+    ) -> Self {
+        let context_tag = context_prefix.map(|prefix| {
+            if prefix.len() >= 2 {
+                format!("{} s:{}] ", &prefix[..prefix.len() - 2], stage)
+            } else {
+                format!("s:{}] ", stage)
+            }
+        });
+        Self {
+            stage,
+            system_prompt,
+            user_prompt,
+            clean_user_prompt,
+            tools,
+            temperature,
+            context_tag,
+            free_form_mode: false,
+            last_tool_call: None,
+            recitation_retries: 0,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl LlmSession for ReviewStageSession {
+    type Output = serde_json::Value;
+
+    fn system_prompt(&self) -> String {
+        self.system_prompt.clone()
+    }
+
+    fn initial_user_prompt(&self) -> String {
+        self.user_prompt.clone()
+    }
+
+    fn log_user_prompt(&self) -> String {
+        self.clean_user_prompt.clone()
+    }
+
+    fn format_validation_feedback(&self, violation: &str) -> String {
+        match self.stage {
+            1..=8 => {
+                format!(
+                    "\n\nPrevious attempt was rejected: {violation}. You MUST return ONLY a JSON object containing 'concerns' and 'dismissed_concerns' arrays. If there are no concerns and no dismissed concerns, return `{{\"concerns\": [], \"dismissed_concerns\": []}}`."
+                )
+            }
+            9 => {
+                format!(
+                    "\n\nPrevious attempt was rejected: {violation}. You MUST return ONLY a JSON object containing 'concerns' array."
+                )
+            }
+            10 => {
+                format!(
+                    "\n\nPrevious attempt was rejected: {violation}. You MUST return ONLY a JSON object containing 'findings' array."
+                )
+            }
+            _ => {
+                format!(
+                    "Previous attempt was rejected: {}. Please correct your output format.",
+                    violation
+                )
+            }
+        }
+    }
+
+    fn tools(&self) -> Option<Vec<AiTool>> {
+        Some(self.tools.get_declarations_generic())
+    }
+
+    fn temperature(&self) -> Option<f32> {
+        Some(self.temperature)
+    }
+
+    fn context_tag(&self) -> Option<String> {
+        self.context_tag.clone()
+    }
+
+    async fn call_tool(&mut self, name: &str, args: Value) -> Result<Value> {
+        if self
+            .last_tool_call
+            .as_ref()
+            .map_or(false, |(last_name, last_args)| {
+                last_name == name && last_args == &args
+            })
+        {
+            tracing::warn!("Blocked duplicate tool call: {} with args {:?}", name, args);
+            return Ok(serde_json::json!({
+                "error": "Duplicate tool call blocked. Please change parameters or use a different tool."
+            }));
+        }
+        self.last_tool_call = Some((name.to_string(), args.clone()));
+        match self.tools.call(name, args).await {
+            Ok(v) => Ok(v),
+            Err(e) => Ok(serde_json::json!({
+                "error": e.to_string()
+            })),
+        }
+    }
+
+    async fn call_tools(
+        &mut self,
+        calls: Vec<crate::ai::ToolCall>,
+    ) -> Result<Vec<(String, Value)>> {
+        let mut results = vec![None; calls.len()];
+        let mut calls_to_run = Vec::new();
+
+        for (idx, call) in calls.into_iter().enumerate() {
+            let name = call.function_name;
+            let args = call.arguments;
+            let call_id = call.id;
+
+            if self
+                .last_tool_call
+                .as_ref()
+                .map_or(false, |(last_name, last_args)| {
+                    last_name == &name && last_args == &args
+                })
+            {
+                tracing::warn!("Blocked duplicate tool call: {} with args {:?}", name, args);
+                results[idx] = Some((
+                    call_id,
+                    serde_json::json!({
+                        "error": "Duplicate tool call blocked. Please change parameters or use a different tool."
+                    }),
+                ));
+            } else {
+                self.last_tool_call = Some((name.clone(), args.clone()));
+                calls_to_run.push((idx, call_id, name, args));
+            }
+        }
+
+        if !calls_to_run.is_empty() {
+            let tools = self.tools.clone();
+            let futures: Vec<_> = calls_to_run
+                .into_iter()
+                .map(|(idx, call_id, name, args)| {
+                    let tools = tools.clone();
+                    async move {
+                        let res = match tools.call(&name, args).await {
+                            Ok(v) => v,
+                            Err(e) => serde_json::json!({"error": e.to_string()}),
+                        };
+                        (idx, (call_id, res))
+                    }
+                })
+                .collect();
+
+            let parallel_results = futures::future::join_all(futures).await;
+            for (idx, res) in parallel_results {
+                results[idx] = Some(res);
+            }
+        }
+
+        Ok(results.into_iter().map(|o| o.unwrap()).collect())
+    }
+
+    fn validate(&mut self, response: &AiResponse) -> Result<Self::Output, ValidationError> {
+        match self.stage {
+            1..=7 => {
+                let parsed = parse_json_response(response)?;
+                match required_stage_arrays(&parsed) {
+                    Ok(_) => Ok(parsed),
+                    Err(violation) => Err(ValidationError::FormatViolation(violation)),
+                }
+            }
+            8 => {
+                let parsed = parse_json_response(response)?;
+                if let Some(c) = parsed.get("concerns") {
+                    if !c.is_array() {
+                        return Err(ValidationError::FormatViolation(
+                            "output 'concerns' is not an array".to_string(),
+                        ));
+                    }
+                } else {
+                    return Err(ValidationError::FormatViolation(
+                        "missing 'concerns' array in output".to_string(),
+                    ));
+                }
+                if let Some(c) = parsed.get("dismissed_concerns") {
+                    if !c.is_array() {
+                        return Err(ValidationError::FormatViolation(
+                            "output 'dismissed_concerns' is not an array".to_string(),
+                        ));
+                    }
+                } else {
+                    return Err(ValidationError::FormatViolation(
+                        "missing 'dismissed_concerns' array in output".to_string(),
+                    ));
+                }
+                Ok(parsed)
+            }
+            9 => {
+                let parsed = parse_json_response(response)?;
+                if let Some(c) = parsed.get("concerns") {
+                    if !c.is_array() {
+                        return Err(ValidationError::FormatViolation(
+                            "output 'concerns' is not an array".to_string(),
+                        ));
+                    }
+                } else {
+                    return Err(ValidationError::FormatViolation(
+                        "missing 'concerns' array in output".to_string(),
+                    ));
+                }
+                Ok(parsed)
+            }
+            10 => {
+                let parsed = parse_json_response(response)?;
+                if let Some(f) = parsed.get("findings") {
+                    if !f.is_array() {
+                        return Err(ValidationError::FormatViolation(
+                            "output 'findings' is not an array".to_string(),
+                        ));
+                    }
+                } else {
+                    return Err(ValidationError::FormatViolation(
+                        "missing 'findings' array in output".to_string(),
+                    ));
+                }
+                Ok(parsed)
+            }
+            11 => {
+                let text = response.content.as_deref().unwrap_or("");
+                if self.free_form_mode {
+                    Ok(serde_json::Value::String(text.to_string()))
+                } else {
+                    match validate_inline_format(text) {
+                        Ok(_) => Ok(serde_json::Value::String(text.to_string())),
+                        Err(violation) => Err(ValidationError::FormatViolation(violation)),
+                    }
+                }
+            }
+            _ => Err(ValidationError::Fatal(format!(
+                "Unsupported stage: {}",
+                self.stage
+            ))),
+        }
+    }
+
+    fn handle_provider_error(&mut self, error: &anyhow::Error, _attempt: usize) -> ErrorAction {
+        let err_str = error.to_string();
+        let is_recitation = err_str.contains("RECITATION") || err_str.contains("blocked");
+
+        if is_recitation {
+            self.recitation_retries += 1;
+            if self.recitation_retries > 3 {
+                return ErrorAction::Fail;
+            }
+
+            if self.stage == 11 && !self.free_form_mode {
+                self.free_form_mode = true;
+                let fallback_reminder = "\n\nCRITICAL: The previous attempt failed due to a RECITATION policy violation. Do NOT quote the original patch code at all. Instead, provide a free-form summary of the findings. Start your report with a note explaining that the format is altered due to recitation restrictions. Do not use the inline quoting style `>`.";
+                return ErrorAction::RetryWithFeedback(fallback_reminder.to_string());
+            }
+
+            return ErrorAction::RetryWithFeedback(
+                "IMPORTANT: Your previous response was blocked by a recitation filter. \
+                 Please do NOT copy large blocks of code verbatim in your response. \
+                 Describe changes in prose, or use highly simplified pseudo-code if you must show code structure."
+                    .to_string(),
+            );
+        }
+
+        ErrorAction::Fail
+    }
+}
+
+fn parse_json_response(response: &AiResponse) -> Result<serde_json::Value, ValidationError> {
+    let raw_text = response.content.as_deref().unwrap_or("");
+    let cleaned = crate::utils::clean_json_string(raw_text);
+    let parsed: serde_json::Value = serde_json::from_str(&cleaned).unwrap_or_else(|_| {
+        let cands = find_json_candidates(raw_text);
+        cands.into_iter().last().unwrap_or(serde_json::json!({}))
+    });
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -2367,7 +2220,7 @@ mod tests {
         match worker.run(patchset).await {
             Ok(_) => panic!("Expected stage failure error, got Ok"),
             Err(e) => assert!(
-                e.to_string().contains("failed to produce valid"),
+                e.to_string().contains("simulated AI failure"),
                 "unexpected error: {e}"
             ),
         }
@@ -2477,7 +2330,7 @@ mod tests {
                 })
             } else {
                 Ok(crate::ai::AiResponse {
-                    content: Some("Done".to_string()),
+                    content: Some(r#"{"concerns": [], "dismissed_concerns": []}"#.to_string()),
                     thought: None,
                     thought_signature: None,
                     tool_calls: None,
@@ -2552,7 +2405,7 @@ mod tests {
                 })
             } else {
                 Ok(crate::ai::AiResponse {
-                    content: Some("Done".to_string()),
+                    content: Some(r#"{"concerns": [], "dismissed_concerns": []}"#.to_string()),
                     thought: None,
                     thought_signature: None,
                     tool_calls: None,
@@ -2579,29 +2432,22 @@ mod tests {
             turn: AtomicUsize::new(0),
         });
         let tools = crate::toolbox::ToolBox::new(temp_dir.path().to_path_buf(), None);
-        let prompts = PromptRegistry::new(temp_dir.path().to_path_buf());
-        let config = WorkerConfig {
-            max_input_tokens: 10000,
-            max_interactions: 5,
-            temperature: 0.0,
-            series_range: None,
-            custom_prompt: None,
-            stages: None,
-        };
-        let worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
+        let mut session = ReviewStageSession::new(
+            1,
+            "sys".to_string(),
+            "user".to_string(),
+            "user".to_string(),
+            std::sync::Arc::new(tools),
+            0.0,
+            None,
+        );
+        let runner = SessionRunner::new(provider.as_ref()).with_max_validation_attempts(3);
 
-        let res = worker
-            .run_ai_stage_raw(
-                1,
-                "sys".to_string(),
-                "clean_sys".to_string(),
-                "user".to_string(),
-                "clean_user".to_string(),
-            )
-            .await;
+        let res = runner.run(&mut session).await;
 
         assert!(res.is_ok());
-        let (_, _, _, _, stage_history) = res.unwrap();
+        let result = res.unwrap();
+        let stage_history = result.history;
         assert_eq!(stage_history.len(), 6);
 
         let blocked_msg = &stage_history[4];
@@ -2617,29 +2463,22 @@ mod tests {
             turn: AtomicUsize::new(0),
         });
         let tools = crate::toolbox::ToolBox::new(temp_dir.path().to_path_buf(), None);
-        let prompts = PromptRegistry::new(temp_dir.path().to_path_buf());
-        let config = WorkerConfig {
-            max_input_tokens: 10000,
-            max_interactions: 5,
-            temperature: 0.0,
-            series_range: None,
-            custom_prompt: None,
-            stages: None,
-        };
-        let worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
+        let mut session = ReviewStageSession::new(
+            1,
+            "sys".to_string(),
+            "user".to_string(),
+            "user".to_string(),
+            std::sync::Arc::new(tools),
+            0.0,
+            None,
+        );
+        let runner = SessionRunner::new(provider.as_ref()).with_max_validation_attempts(3);
 
-        let res = worker
-            .run_ai_stage_raw(
-                1,
-                "sys".to_string(),
-                "clean_sys".to_string(),
-                "user".to_string(),
-                "clean_user".to_string(),
-            )
-            .await;
+        let res = runner.run(&mut session).await;
 
         assert!(res.is_ok());
-        let (_, _, _, _, stage_history) = res.unwrap();
+        let result = res.unwrap();
+        let stage_history = result.history;
         assert_eq!(stage_history.len(), 8);
 
         let response_msg = &stage_history[6];
@@ -2664,14 +2503,13 @@ mod tests {
                     "Remote AI Error: Gemini candidate blocked (finish reason: RECITATION)"
                 )
             } else {
-                let user_msg = request
-                    .messages
-                    .iter()
-                    .find(|m| m.role == crate::ai::AiRole::User);
-                if let Some(msg) = user_msg
-                    && let Some(content) = &msg.content
-                    && content.contains("recitation filter")
-                {
+                let has_filter = request.messages.iter().any(|m| {
+                    m.role == crate::ai::AiRole::User
+                        && m.content
+                            .as_ref()
+                            .is_some_and(|c| c.contains("recitation filter"))
+                });
+                if has_filter {
                     return Ok(crate::ai::AiResponse {
                         content: Some(r#"{"concerns": [], "dismissed_concerns": []}"#.to_string()),
                         thought: None,
