@@ -17,6 +17,7 @@ use crate::ai::{
     ClassifyAiError, ErrorAction, LlmSession, SessionRunner, ValidationError,
 };
 use crate::toolbox::ToolBox;
+use crate::worker::stage::{ReviewStage, create_stage};
 use anyhow::{Context, Result};
 
 /// Typed errors that must not be silently retried.
@@ -85,43 +86,6 @@ pub struct ReviewInput {
     pub patches: Vec<PatchInput>,
 }
 
-fn validate_inline_format(content: &str) -> std::result::Result<(), String> {
-    if content.lines().any(|l| l.trim_start().starts_with("```")) {
-        return Err("The output contains Markdown code blocks ('```'). It must be plain text as per `inline-template.md`.".to_string());
-    }
-    if !content.lines().any(|l| l.trim_start().starts_with(">")) {
-        return Err("The output does not appear to quote any code or context using '>'. Please follow the quoting style in `inline-template.md`.".to_string());
-    }
-    let has_commit_header = content
-        .lines()
-        .take(20)
-        .any(|l| l.trim_start().to_lowercase().starts_with("commit "));
-    if !has_commit_header {
-        return Err("The output is missing the 'commit <hash>' header. Please start with the commit details (Commit, Author, Subject) as per `inline-template.md`.".to_string());
-    }
-    let has_author_header = content
-        .lines()
-        .take(20)
-        .any(|l| l.trim_start().to_lowercase().starts_with("author:"));
-    if !has_author_header {
-        return Err("The output is missing the 'Author: <name>' header. Please start with the commit details (Commit, Author, Subject) as per `inline-template.md`.".to_string());
-    }
-    let has_comments = content.lines().any(|l| {
-        let trimmed = l.trim();
-        if trimmed.is_empty() || trimmed.starts_with(">") {
-            return false;
-        }
-        let lower = trimmed.to_lowercase();
-        !lower.starts_with("commit ")
-            && !lower.starts_with("author:")
-            && !lower.starts_with("date:")
-            && !lower.starts_with("link:")
-    });
-    if !has_comments {
-        return Err("The output appears to lack any comments or summary. You must include a summary and interspersed comments explaining the findings.".to_string());
-    }
-    Ok(())
-}
 pub struct WorkerConfig {
     pub max_input_tokens: usize,
     pub max_interactions: usize,
@@ -787,27 +751,29 @@ You MUST respond with ONLY a JSON object, no other text. Example:
 
         // Construct futures for Stages 1-7
         let mut stage_futures = Vec::new();
-        for stage in 1..=7 {
+        for stage_num in 1..=7 {
             if let Some(ref selected_stages) = self.stages {
-                if !selected_stages.contains(&stage) {
+                if !selected_stages.contains(&stage_num) {
                     continue;
                 }
             } else if let Some(ref planned_stages) = planning_selected_stages
-                && !planned_stages.contains(&stage)
+                && !planned_stages.contains(&stage_num)
             {
-                info!("Skipping stage {} based on planning phase", stage);
+                info!("Skipping stage {} based on planning phase", stage_num);
                 continue;
             }
 
-            let system_prompt = if (3..=6).contains(&stage) {
-                shared_context_no_log.clone()
-            } else {
+            let stage = create_stage(stage_num);
+            let use_log = stage.use_log_in_context();
+            let system_prompt = if use_log {
                 shared_context.clone()
-            };
-            let clean_system_prompt = if (3..=6).contains(&stage) {
-                clean_shared_context_no_log.clone()
             } else {
+                shared_context_no_log.clone()
+            };
+            let clean_system_prompt = if use_log {
                 clean_shared_context.clone()
+            } else {
+                clean_shared_context_no_log.clone()
             };
 
             stage_futures.push(self.execute_stage(stage, system_prompt, clean_system_prompt));
@@ -952,8 +918,9 @@ Preserve the most precise location details from the input. Do not invent line nu
                 stage_prompt, aggregated_concerns_json, aggregated_dismissed_concerns_json
             );
 
+            let stage_impl = create_stage(stage);
             let mut session = ReviewStageSession::new(
-                stage,
+                stage_impl,
                 system_prompt,
                 user_prompt,
                 clean_user_prompt,
@@ -1094,8 +1061,9 @@ Example Output:
                 deduplicated_dismissed_concerns_json
             );
 
+            let stage_impl = create_stage(stage);
             let mut session = ReviewStageSession::new(
-                stage,
+                stage_impl,
                 system_prompt,
                 user_prompt,
                 clean_user_prompt,
@@ -1196,8 +1164,9 @@ Example Output:
                 clean_stage_prompt, conflict_resolved_concerns_json
             );
 
+            let stage_impl = create_stage(stage);
             let mut session = ReviewStageSession::new(
-                stage,
+                stage_impl,
                 system_prompt,
                 user_prompt,
                 clean_user_prompt,
@@ -1262,8 +1231,9 @@ Example Output:
                 clean_stage_prompt, findings_str
             );
 
+            let stage_impl = create_stage(stage);
             let mut session = ReviewStageSession::new(
-                stage,
+                stage_impl,
                 system_prompt,
                 user_prompt,
                 clean_user_prompt,
@@ -1411,12 +1381,13 @@ Example Output:
 
     async fn execute_stage(
         &self,
-        stage: u8,
+        stage: Box<dyn ReviewStage>,
         system_prompt: String,
         _clean_system_prompt: String,
     ) -> Result<StageExecutionResult> {
-        info!("Running Stage {}", stage);
-        let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
+        let stage_num = stage.number();
+        info!("Running Stage {}", stage_num);
+        let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage_num).await?;
 
         let format_guidance = r#"TodoWrite compatibility: vendored prompts may ask you to add tasks or suspected bugs to TodoWrite. Do not call or mention TodoWrite. Treat those instructions as an internal checklist only. If that checklist identifies a concrete suspected bug, carry it forward as a JSON concern with file, function_or_symbol, line when known, triggering condition, and evidence. Do not output generic checklist progress as a concern.
 
@@ -1509,7 +1480,7 @@ Example:
         }
 
         Ok(StageExecutionResult {
-            stage,
+            stage: stage_num,
             concerns: concerns_out,
             dismissed_concerns: dismissed_concerns_out,
             tokens_in: result.usage.prompt_tokens as u32,
@@ -1580,21 +1551,6 @@ fn append_stage_dismissed_concerns(target: &mut Vec<Value>, items: &[Value], sta
     append_stage_items(target, items, stage, "General", "description");
 }
 
-fn required_stage_arrays(value: &Value) -> std::result::Result<(&[Value], &[Value]), String> {
-    let concerns = value
-        .get("concerns")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "JSON output is missing the required 'concerns' array".to_string())?;
-    let dismissed_concerns = value
-        .get("dismissed_concerns")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            "JSON output is missing the required 'dismissed_concerns' array".to_string()
-        })?;
-
-    Ok((concerns.as_slice(), dismissed_concerns.as_slice()))
-}
-
 fn normalize_stage_item(
     item: &Value,
     stage: u8,
@@ -1616,74 +1572,21 @@ fn normalize_stage_item(
     }
 }
 
-fn find_json_candidates(text: &str) -> Vec<Value> {
-    let mut candidates = Vec::new();
-    let chars: Vec<char> = text.chars().collect();
-    let mut i = 0;
-
-    while i < chars.len() {
-        if chars[i] == '{'
-            && let Some(end) = find_matching_brace(&chars, i)
-        {
-            let candidate: String = chars[i..=end].iter().collect();
-            let clean_candidate = crate::utils::clean_json_string(&candidate);
-            if let Ok(v) =
-                serde_json::from_str(&clean_candidate).or_else(|_| serde_json::from_str(&candidate))
-            {
-                candidates.push(v);
-                i = end + 1;
-                continue;
-            }
-        }
-        i += 1;
-    }
-    candidates
-}
-
-fn find_matching_brace(chars: &[char], start: usize) -> Option<usize> {
-    let mut depth = 0;
-    let mut in_string = false;
-    let mut escape = false;
-
-    for (i, c) in chars.iter().enumerate().skip(start) {
-        if in_string {
-            if escape {
-                escape = false;
-            } else if *c == '\\' {
-                escape = true;
-            } else if *c == '"' {
-                in_string = false;
-            }
-        } else if *c == '"' {
-            in_string = true;
-        } else if *c == '{' {
-            depth += 1;
-        } else if *c == '}' {
-            depth -= 1;
-            if depth == 0 {
-                return Some(i);
-            }
-        }
-    }
-    None
-}
-
 struct ReviewStageSession {
-    stage: u8,
+    stage: Box<dyn ReviewStage>,
     system_prompt: String,
     user_prompt: String,
     clean_user_prompt: String,
     tools: std::sync::Arc<ToolBox>,
     temperature: f32,
     context_tag: Option<String>,
-    free_form_mode: bool,
     last_tool_call: Option<(String, Value)>,
     recitation_retries: usize,
 }
 
 impl ReviewStageSession {
     fn new(
-        stage: u8,
+        stage: Box<dyn ReviewStage>,
         system_prompt: String,
         user_prompt: String,
         clean_user_prompt: String,
@@ -1691,11 +1594,12 @@ impl ReviewStageSession {
         temperature: f32,
         context_prefix: Option<&str>,
     ) -> Self {
+        let stage_num = stage.number();
         let context_tag = context_prefix.map(|prefix| {
             if prefix.len() >= 2 {
-                format!("{} s:{}] ", &prefix[..prefix.len() - 2], stage)
+                format!("{} s:{}] ", &prefix[..prefix.len() - 2], stage_num)
             } else {
-                format!("s:{}] ", stage)
+                format!("s:{}] ", stage_num)
             }
         });
         Self {
@@ -1706,7 +1610,6 @@ impl ReviewStageSession {
             tools,
             temperature,
             context_tag,
-            free_form_mode: false,
             last_tool_call: None,
             recitation_retries: 0,
         }
@@ -1730,29 +1633,7 @@ impl LlmSession for ReviewStageSession {
     }
 
     fn format_validation_feedback(&self, violation: &str) -> String {
-        match self.stage {
-            1..=8 => {
-                format!(
-                    "\n\nPrevious attempt was rejected: {violation}. You MUST return ONLY a JSON object containing 'concerns' and 'dismissed_concerns' arrays. If there are no concerns and no dismissed concerns, return `{{\"concerns\": [], \"dismissed_concerns\": []}}`."
-                )
-            }
-            9 => {
-                format!(
-                    "\n\nPrevious attempt was rejected: {violation}. You MUST return ONLY a JSON object containing 'concerns' array."
-                )
-            }
-            10 => {
-                format!(
-                    "\n\nPrevious attempt was rejected: {violation}. You MUST return ONLY a JSON object containing 'findings' array."
-                )
-            }
-            _ => {
-                format!(
-                    "Previous attempt was rejected: {}. Please correct your output format.",
-                    violation
-                )
-            }
-        }
+        self.stage.format_validation_feedback(violation)
     }
 
     fn tools(&self) -> Option<Vec<AiTool>> {
@@ -1847,86 +1728,7 @@ impl LlmSession for ReviewStageSession {
     }
 
     fn validate(&mut self, response: &AiResponse) -> Result<Self::Output, ValidationError> {
-        match self.stage {
-            1..=7 => {
-                let parsed = parse_json_response(response)?;
-                match required_stage_arrays(&parsed) {
-                    Ok(_) => Ok(parsed),
-                    Err(violation) => Err(ValidationError::FormatViolation(violation)),
-                }
-            }
-            8 => {
-                let parsed = parse_json_response(response)?;
-                if let Some(c) = parsed.get("concerns") {
-                    if !c.is_array() {
-                        return Err(ValidationError::FormatViolation(
-                            "output 'concerns' is not an array".to_string(),
-                        ));
-                    }
-                } else {
-                    return Err(ValidationError::FormatViolation(
-                        "missing 'concerns' array in output".to_string(),
-                    ));
-                }
-                if let Some(c) = parsed.get("dismissed_concerns") {
-                    if !c.is_array() {
-                        return Err(ValidationError::FormatViolation(
-                            "output 'dismissed_concerns' is not an array".to_string(),
-                        ));
-                    }
-                } else {
-                    return Err(ValidationError::FormatViolation(
-                        "missing 'dismissed_concerns' array in output".to_string(),
-                    ));
-                }
-                Ok(parsed)
-            }
-            9 => {
-                let parsed = parse_json_response(response)?;
-                if let Some(c) = parsed.get("concerns") {
-                    if !c.is_array() {
-                        return Err(ValidationError::FormatViolation(
-                            "output 'concerns' is not an array".to_string(),
-                        ));
-                    }
-                } else {
-                    return Err(ValidationError::FormatViolation(
-                        "missing 'concerns' array in output".to_string(),
-                    ));
-                }
-                Ok(parsed)
-            }
-            10 => {
-                let parsed = parse_json_response(response)?;
-                if let Some(f) = parsed.get("findings") {
-                    if !f.is_array() {
-                        return Err(ValidationError::FormatViolation(
-                            "output 'findings' is not an array".to_string(),
-                        ));
-                    }
-                } else {
-                    return Err(ValidationError::FormatViolation(
-                        "missing 'findings' array in output".to_string(),
-                    ));
-                }
-                Ok(parsed)
-            }
-            11 => {
-                let text = response.content.as_deref().unwrap_or("");
-                if self.free_form_mode {
-                    Ok(serde_json::Value::String(text.to_string()))
-                } else {
-                    match validate_inline_format(text) {
-                        Ok(_) => Ok(serde_json::Value::String(text.to_string())),
-                        Err(violation) => Err(ValidationError::FormatViolation(violation)),
-                    }
-                }
-            }
-            _ => Err(ValidationError::Fatal(format!(
-                "Unsupported stage: {}",
-                self.stage
-            ))),
-        }
+        self.stage.validate(response)
     }
 
     fn handle_provider_error(&mut self, error: &anyhow::Error, _attempt: usize) -> ErrorAction {
@@ -1939,10 +1741,8 @@ impl LlmSession for ReviewStageSession {
                 return ErrorAction::Fail;
             }
 
-            if self.stage == 11 && !self.free_form_mode {
-                self.free_form_mode = true;
-                let fallback_reminder = "\n\nCRITICAL: The previous attempt failed due to a RECITATION policy violation. Do NOT quote the original patch code at all. Instead, provide a free-form summary of the findings. Start your report with a note explaining that the format is altered due to recitation restrictions. Do not use the inline quoting style `>`.";
-                return ErrorAction::RetryWithFeedback(fallback_reminder.to_string());
+            if let Some(action) = self.stage.handle_recitation_error() {
+                return action;
             }
 
             return ErrorAction::RetryWithFeedback(
@@ -1955,16 +1755,6 @@ impl LlmSession for ReviewStageSession {
 
         ErrorAction::Fail
     }
-}
-
-fn parse_json_response(response: &AiResponse) -> Result<serde_json::Value, ValidationError> {
-    let raw_text = response.content.as_deref().unwrap_or("");
-    let cleaned = crate::utils::clean_json_string(raw_text);
-    let parsed: serde_json::Value = serde_json::from_str(&cleaned).unwrap_or_else(|_| {
-        let cands = find_json_candidates(raw_text);
-        cands.into_iter().last().unwrap_or(serde_json::json!({}))
-    });
-    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -2033,30 +1823,6 @@ mod tests {
         assert_eq!(items[0]["source_stage"], 6);
         assert_eq!(items[0]["type"], "General");
         assert_eq!(items[0]["description"], "plain concern");
-    }
-
-    #[test]
-    fn test_required_stage_arrays_accepts_empty_arrays() {
-        let output = json!({
-            "concerns": [],
-            "dismissed_concerns": []
-        });
-
-        let (concerns, dismissed_concerns) = required_stage_arrays(&output).unwrap();
-
-        assert!(concerns.is_empty());
-        assert!(dismissed_concerns.is_empty());
-    }
-
-    #[test]
-    fn test_required_stage_arrays_rejects_missing_dismissed_concerns() {
-        let output = json!({
-            "concerns": []
-        });
-
-        let err = required_stage_arrays(&output).unwrap_err();
-
-        assert!(err.contains("'dismissed_concerns'"));
     }
 
     #[test]
@@ -2433,7 +2199,7 @@ mod tests {
         });
         let tools = crate::toolbox::ToolBox::new(temp_dir.path().to_path_buf(), None);
         let mut session = ReviewStageSession::new(
-            1,
+            create_stage(1),
             "sys".to_string(),
             "user".to_string(),
             "user".to_string(),
@@ -2464,7 +2230,7 @@ mod tests {
         });
         let tools = crate::toolbox::ToolBox::new(temp_dir.path().to_path_buf(), None);
         let mut session = ReviewStageSession::new(
-            1,
+            create_stage(1),
             "sys".to_string(),
             "user".to_string(),
             "user".to_string(),
