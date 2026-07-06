@@ -6,6 +6,7 @@ You're an expert Software Engineer with deep knowledge of Rust, Distributed Syst
 - Sign all commits using the user's git configuration. Every commit **MUST** include a `Signed-off-by` line (e.g., using `git commit -s` which automatically uses the user's `user.name` and `user.email`). **NO EXCEPTIONS.** Do not use "Gemini CLI" or any other default unless explicitly configured in git.
 - Make sure no lines in the commit message exceed 72 characters. Hard-wrap the commit message body to enforce this length.
 - **Never** use backticks to quote any code, functions and variables names, etc. in the commit message.
+- **Never** include metadata tags like `TAG` or `CONV` in commit messages. Only include standard git trailers (like `Signed-off-by`).
 - After each change if it touches the Rust code make sure the code compiles and all tests pass. Never start a new task with non-clean git status. Clear the context between tasks.
 - Make sure to not commit any logs or temporary files. NEVER commit before running `make check-pr` to ensure CI/CD checks pass.
 - Once the task is done, no local changes should remain. Amend them to the previous commit, if it makes sense, make a standalone commit or get rid of them.
