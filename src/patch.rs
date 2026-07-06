@@ -461,6 +461,58 @@ fn is_b4_alias(alias: &str, real: &str) -> bool {
     encoded_part == real_lower.replace('@', ".")
 }
 
+pub fn extract_changelog_from_body(body: &str) -> Option<String> {
+    let lines = body.lines();
+    let mut found_separator = false;
+    let mut changelog = String::new();
+
+    for line in lines {
+        if !found_separator {
+            let trimmed = line.trim();
+            if trimmed == "---" {
+                found_separator = true;
+            }
+        } else {
+            if line.starts_with("diff --git ")
+                || line.starts_with("--- a/")
+                || line.starts_with("--- /dev/null")
+            {
+                break;
+            }
+            changelog.push_str(line);
+            changelog.push('\n');
+        }
+    }
+
+    if found_separator {
+        let trimmed_changelog = changelog.trim().to_string();
+        if !trimmed_changelog.is_empty() {
+            return Some(trimmed_changelog);
+        }
+    }
+    None
+}
+
+pub fn inject_changelog_into_git_show(git_show: &str, changelog: &str) -> String {
+    if let Some(pos) = git_show.find("diff --git ") {
+        let (header, diff) = git_show.split_at(pos);
+        let mut result = header.to_string();
+        if !result.ends_with('\n') {
+            result.push('\n');
+        }
+        result.push_str("---\n");
+        result.push_str(changelog);
+        result.push('\n');
+        if !changelog.ends_with('\n') {
+            result.push('\n');
+        }
+        result.push_str(diff);
+        result
+    } else {
+        format!("{}\n---\n{}\n", git_show, changelog)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -822,6 +874,80 @@ Body";
         assert_eq!(
             meta.author,
             "\"Thomas Richard (TI)\" <thomas.richard@bootlin.com>"
+        );
+    }
+
+    #[test]
+    fn test_extract_changelog_from_body() {
+        let body_with_changelog = "This is the commit message.
+
+Signed-off-by: Me <me@example.com>
+---
+Changes in v4:
+- Rebase on v7.2-rc1, drop dependencies
+- (A concurrency fix for mark_new_valid_map was sent independently)
+  https://lore.kernel.org/linux-riscv/
+
+diff --git a/file.c b/file.c
+index ...";
+        assert_eq!(
+            extract_changelog_from_body(body_with_changelog),
+            Some("Changes in v4:\n- Rebase on v7.2-rc1, drop dependencies\n- (A concurrency fix for mark_new_valid_map was sent independently)\n  https://lore.kernel.org/linux-riscv/".to_string())
+        );
+
+        let body_no_changelog = "This is the commit message.
+
+Signed-off-by: Me <me@example.com>
+---
+diff --git a/file.c b/file.c
+index ...";
+        assert_eq!(extract_changelog_from_body(body_no_changelog), None);
+
+        let body_no_separator = "This is the commit message.
+
+Signed-off-by: Me <me@example.com>
+diff --git a/file.c b/file.c
+index ...";
+        assert_eq!(extract_changelog_from_body(body_no_separator), None);
+
+        let cover_letter = "This is cover letter.
+
+---
+changes:
+- test
+
+ fs/file.c | 2 +-";
+        assert_eq!(
+            extract_changelog_from_body(cover_letter),
+            Some("changes:\n- test\n\n fs/file.c | 2 +-".to_string())
+        );
+    }
+
+    #[test]
+    fn test_inject_changelog_into_git_show() {
+        let git_show = "commit 1234
+Author: Me <me@example.com>
+Date:   Mon Jul 6 2026
+
+    This is commit message
+
+diff --git a/file.c b/file.c";
+        let changelog = "v2:
+- test";
+        let expected = "commit 1234
+Author: Me <me@example.com>
+Date:   Mon Jul 6 2026
+
+    This is commit message
+
+---
+v2:
+- test
+
+diff --git a/file.c b/file.c";
+        assert_eq!(
+            inject_changelog_into_git_show(git_show, changelog),
+            expected
         );
     }
 }

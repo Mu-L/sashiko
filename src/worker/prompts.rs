@@ -518,11 +518,20 @@ impl Worker {
 
         if let Some(patches) = patchset["patches"].as_array() {
             for p in patches {
+                let diff_body = p["diff"].as_str().unwrap_or("");
+                let changelog_opt = crate::patch::extract_changelog_from_body(diff_body);
+
                 if let Some(show) = p["git_show"].as_str() {
-                    target_commit_diff.push_str(show);
+                    if let Some(ref changelog) = changelog_opt {
+                        let enriched_show =
+                            crate::patch::inject_changelog_into_git_show(show, changelog);
+                        target_commit_diff.push_str(&enriched_show);
+                    } else {
+                        target_commit_diff.push_str(show);
+                    }
                     target_commit_diff.push('\n');
-                } else if let Some(diff) = p["diff"].as_str() {
-                    target_commit_diff.push_str(diff);
+                } else {
+                    target_commit_diff.push_str(diff_body);
                     target_commit_diff.push('\n');
                 }
 
