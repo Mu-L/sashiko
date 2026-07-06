@@ -161,8 +161,6 @@ This mode:
 
 For local review, Sashiko loads settings from `./Settings.toml` if it exists in the current directory, otherwise from `~/.config/sashiko.toml`. Use `--settings <path>` to point to a specific settings file.
 
-See the [CLI Reference](docs/sashiko-cli.md#local) for more details.
-
 ### 2. Daemon Mode
 
 The daemon is responsible for monitoring mailing lists (NNTP), managing the database, and coordinating the AI review process. It also provides a Web UI and an API.
