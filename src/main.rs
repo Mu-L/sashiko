@@ -855,7 +855,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(patchsets) = metrics_db.count_patchsets(None, None).await {
                 sashiko::metrics::set_patchsets(patchsets);
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
         }
     });
 

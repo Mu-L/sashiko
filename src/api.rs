@@ -288,6 +288,7 @@ pub fn build_router(
     });
 
     Router::new()
+        .route("/health", get(health_check))
         .route("/api/config", get(get_config))
         .route("/api/lists", get(list_mailing_lists))
         .route("/api/patchsets", get(list_patchsets))
@@ -1119,6 +1120,10 @@ async fn rerun_patch(
         })?;
 
     Ok(Json(serde_json::json!({ "status": "accepted" })))
+}
+
+async fn health_check() -> StatusCode {
+    StatusCode::OK
 }
 
 async fn get_config(
