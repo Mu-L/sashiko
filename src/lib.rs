@@ -29,6 +29,7 @@ pub mod local_review;
 pub mod nntp;
 pub mod patch;
 pub mod patchwork;
+pub mod pipelines;
 pub mod prompt_bundle;
 pub mod reviewer;
 pub mod settings;
