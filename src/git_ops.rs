@@ -633,10 +633,16 @@ pub async fn ensure_remote(
     if should_fetch {
         info!("Fetching remote {}", name);
 
+        let mut fetch_args = vec!["fetch", "--prune"];
+        if !url.contains("torvalds/linux.git") && !url.contains("stable/linux.git") {
+            fetch_args.push("--no-tags");
+        }
+        fetch_args.push(name);
+
         let fetch_future = Command::new("git")
             .current_dir(repo_path)
             .args(GIT_PROTOCOL_RESTRICTIONS)
-            .args(["fetch", "--prune", "--no-tags", name])
+            .args(fetch_args)
             .kill_on_drop(true)
             .output();
 
