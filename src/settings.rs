@@ -557,6 +557,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_production_settings_is_valid() {
+        let path = "Settings.toml";
+        if Path::new(path).exists() {
+            let _ = Settings::from_file("Settings")
+                .expect("Production 'Settings.toml' failed to parse");
+        }
+    }
+
+    #[test]
     fn test_local_review_path_prefers_current_directory() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join("Settings.toml"), "").unwrap();
