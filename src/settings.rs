@@ -490,13 +490,11 @@ fn default_forge() -> ForgeSettings {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
 pub struct LocalReviewReviewSettings {
     pub concurrency: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
 pub struct LocalReviewSettings {
     pub ai: AiSettings,
     pub review: Option<LocalReviewReviewSettings>,
