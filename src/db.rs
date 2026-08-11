@@ -463,20 +463,9 @@ impl Database {
         self.conn.execute_batch(schema).await?;
 
         // Consolidate 'Applying' and 'In Review' states
-        let _ = self
-            .conn
-            .execute(
-                "UPDATE patchsets SET status = 'In Review' WHERE status = 'Applying'",
-                (),
-            )
-            .await;
-        let _ = self
-            .conn
-            .execute(
-                "UPDATE reviews SET status = 'In Review' WHERE status = 'Applying'",
-                (),
-            )
-            .await;
+        // (Handled incrementally or previously migrated)
+        // let _ = self.conn.execute("UPDATE patchsets SET status = 'In Review' WHERE status = 'Applying'", ()).await;
+        // let _ = self.conn.execute("UPDATE reviews SET status = 'In Review' WHERE status = 'Applying'", ()).await;
 
         // Manual migrations for existing tables
         let _ = self
@@ -626,7 +615,8 @@ impl Database {
             )
             .await;
 
-        // Backfill messages_mailing_lists from messages.mailing_list
+        // Backfill messages_mailing_lists from messages.mailing_list (Already backfilled in production)
+        /*
         let _ = self
             .conn
             .execute(
@@ -638,6 +628,7 @@ impl Database {
                 (),
             )
             .await;
+        */
 
         // Findings table migration
         let _ = self

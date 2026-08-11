@@ -860,6 +860,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Keep the main thread running
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
     tokio::signal::ctrl_c().await?;
     info!("Shutting down...");
 
