@@ -677,8 +677,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut total_ingested = 0;
         let mut total_errors = 0;
 
-        let policy =
-            sashiko::email_policy::EmailPolicyConfig::load("email_policy.toml").unwrap_or_default();
+        let policy = sashiko::email_policy::EmailPolicyConfig::load("email_policy.toml")
+            .expect("Failed to parse email_policy.toml");
 
         loop {
             let count = parsed_rx.recv_many(&mut buffer, 100).await;
