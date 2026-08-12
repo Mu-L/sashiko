@@ -1,0 +1,201 @@
+use crate::compression::compress_string_if_needed;
+use crate::db::Database;
+use anyhow::Result;
+use std::sync::Arc;
+use tokio::time::{Duration, sleep};
+use tracing::{error, info};
+
+pub async fn run_compressor(db: Arc<Database>) {
+    info!("Starting background data compressor");
+    loop {
+        let batch_size = 50;
+        let mut work_done = false;
+
+        match compress_messages(&db, batch_size).await {
+            Ok(count) => {
+                if count > 0 {
+                    work_done = true;
+                }
+            }
+            Err(e) => error!("Error compressing messages: {:?}", e),
+        }
+
+        match compress_patches(&db, batch_size).await {
+            Ok(count) => {
+                if count > 0 {
+                    work_done = true;
+                }
+            }
+            Err(e) => error!("Error compressing patches: {:?}", e),
+        }
+
+        match compress_patchsets(&db, batch_size).await {
+            Ok(count) => {
+                if count > 0 {
+                    work_done = true;
+                }
+            }
+            Err(e) => error!("Error compressing patchsets: {:?}", e),
+        }
+
+        match compress_reviews(&db, batch_size).await {
+            Ok(count) => {
+                if count > 0 {
+                    work_done = true;
+                }
+            }
+            Err(e) => error!("Error compressing reviews: {:?}", e),
+        }
+
+        match compress_ai_interactions(&db, batch_size).await {
+            Ok(count) => {
+                if count > 0 {
+                    work_done = true;
+                }
+            }
+            Err(e) => error!("Error compressing ai_interactions: {:?}", e),
+        }
+
+        if !work_done {
+            info!("Compression sweep complete. Sleeping.");
+            sleep(Duration::from_secs(3600)).await;
+        } else {
+            sleep(Duration::from_secs(5)).await;
+        }
+    }
+}
+
+async fn compress_messages(db: &Database, limit: i32) -> Result<usize> {
+    let mut rows = db.conn.query(
+        "SELECT id, body FROM messages WHERE typeof(body) = 'text' AND length(body) > 1024 LIMIT ?",
+        libsql::params![limit],
+    ).await?;
+
+    let mut count = 0;
+    while let Ok(Some(row)) = rows.next().await {
+        let id: i64 = row.get(0)?;
+        let body: String = row.get(1)?;
+        db.conn
+            .execute(
+                "UPDATE messages SET body = ? WHERE id = ?",
+                libsql::params![compress_string_if_needed(&body), id],
+            )
+            .await?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+async fn compress_patches(db: &Database, limit: i32) -> Result<usize> {
+    let mut rows = db.conn.query(
+        "SELECT id, diff FROM patches WHERE typeof(diff) = 'text' AND length(diff) > 1024 LIMIT ?",
+        libsql::params![limit],
+    ).await?;
+
+    let mut count = 0;
+    while let Ok(Some(row)) = rows.next().await {
+        let id: i64 = row.get(0)?;
+        let diff: String = row.get(1)?;
+        db.conn
+            .execute(
+                "UPDATE patches SET diff = ? WHERE id = ?",
+                libsql::params![compress_string_if_needed(&diff), id],
+            )
+            .await?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+async fn compress_patchsets(db: &Database, limit: i32) -> Result<usize> {
+    let mut rows = db.conn.query(
+        "SELECT id, baseline_logs FROM patchsets WHERE typeof(baseline_logs) = 'text' AND length(baseline_logs) > 1024 LIMIT ?",
+        libsql::params![limit],
+    ).await?;
+
+    let mut count = 0;
+    while let Ok(Some(row)) = rows.next().await {
+        let id: i64 = row.get(0)?;
+        let logs: String = row.get(1)?;
+        db.conn
+            .execute(
+                "UPDATE patchsets SET baseline_logs = ? WHERE id = ?",
+                libsql::params![compress_string_if_needed(&logs), id],
+            )
+            .await?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+async fn compress_reviews(db: &Database, limit: i32) -> Result<usize> {
+    let mut count = 0;
+    // Logs
+    let mut rows = db.conn.query(
+        "SELECT id, logs FROM reviews WHERE typeof(logs) = 'text' AND length(logs) > 1024 LIMIT ?",
+        libsql::params![limit],
+    ).await?;
+    while let Ok(Some(row)) = rows.next().await {
+        let id: i64 = row.get(0)?;
+        let logs: String = row.get(1)?;
+        db.conn
+            .execute(
+                "UPDATE reviews SET logs = ? WHERE id = ?",
+                libsql::params![compress_string_if_needed(&logs), id],
+            )
+            .await?;
+        count += 1;
+    }
+
+    // Inline review
+    let mut rows = db.conn.query(
+        "SELECT id, inline_review FROM reviews WHERE typeof(inline_review) = 'text' AND length(inline_review) > 1024 LIMIT ?",
+        libsql::params![limit],
+    ).await?;
+    while let Ok(Some(row)) = rows.next().await {
+        let id: i64 = row.get(0)?;
+        let inline: String = row.get(1)?;
+        db.conn
+            .execute(
+                "UPDATE reviews SET inline_review = ? WHERE id = ?",
+                libsql::params![compress_string_if_needed(&inline), id],
+            )
+            .await?;
+        count += 1;
+    }
+
+    Ok(count)
+}
+
+async fn compress_ai_interactions(db: &Database, limit: i32) -> Result<usize> {
+    let mut count = 0;
+    let mut rows = db.conn.query(
+        "SELECT id, input_context, output_raw FROM ai_interactions WHERE (typeof(input_context) = 'text' AND length(input_context) > 1024) OR (typeof(output_raw) = 'text' AND length(output_raw) > 1024) LIMIT ?",
+        libsql::params![limit],
+    ).await?;
+    while let Ok(Some(row)) = rows.next().await {
+        let id: String = row.get(0)?;
+
+        // Ensure we properly fetch text fields (if one is already blob, we don't change it or we just fall back)
+        let input_val: libsql::Value = row.get(1)?;
+        let output_val: libsql::Value = row.get(2)?;
+
+        let new_input = match input_val {
+            libsql::Value::Text(s) => compress_string_if_needed(&s),
+            other => other,
+        };
+        let new_output = match output_val {
+            libsql::Value::Text(s) => compress_string_if_needed(&s),
+            other => other,
+        };
+
+        db.conn
+            .execute(
+                "UPDATE ai_interactions SET input_context = ?, output_raw = ? WHERE id = ?",
+                libsql::params![new_input, new_output, id],
+            )
+            .await?;
+        count += 1;
+    }
+    Ok(count)
+}

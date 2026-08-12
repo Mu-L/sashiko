@@ -793,6 +793,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Initialize custom remotes
+    // Start Background Compressor Worker
+    tokio::spawn(sashiko::worker::compressor::run_compressor(db.clone()));
     let repo_path = std::path::PathBuf::from(&settings.git.repository_path);
 
     // Clean up stale worktree directories on disk first

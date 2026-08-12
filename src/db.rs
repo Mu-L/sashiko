@@ -251,12 +251,12 @@ impl Database {
                 row.get::<Option<String>>(4).ok().flatten(),
                 row.get::<Option<String>>(5).ok().flatten(),
                 row.get::<Option<i64>>(6).ok().flatten(),
-                row.get::<Option<String>>(7).ok().flatten(),
+                crate::compression::get_compressed_string_opt(&row, 7).unwrap_or(None),
                 row.get::<Option<String>>(8).ok().flatten(),
                 row.get::<Option<String>>(9).ok().flatten(),
                 row.get::<Option<String>>(10).ok().flatten(),
                 row.get::<Option<String>>(11).ok().flatten(),
-                row.get::<Option<String>>(12).ok().flatten(),
+                crate::compression::get_compressed_string_opt(&row, 12).unwrap_or(None),
                 row.get::<Option<String>>(13).ok().flatten(),
             ))
         } else {
@@ -397,7 +397,8 @@ impl Database {
             .await?;
 
         if let Ok(Some(row)) = rows.next().await {
-            let body: Option<String> = row.get(0).ok();
+            let body: Option<String> =
+                crate::compression::get_compressed_string_opt(&row, 0).unwrap_or(None);
             if let Some(b) = body
                 && !b.is_empty()
             {
@@ -860,7 +861,11 @@ impl Database {
             self.conn
                 .execute(
                     "UPDATE reviews SET status = ?, logs = ? WHERE id = ?",
-                    libsql::params![status, l, review_id],
+                    libsql::params![
+                        status,
+                        crate::compression::compress_string_if_needed(l),
+                        review_id
+                    ],
                 )
                 .await?;
         } else {
@@ -888,7 +893,7 @@ impl Database {
         self.conn
             .execute(
                 "UPDATE reviews SET status = ?, result_description = ?, summary = ?, interaction_id = ?, inline_review = ?, logs = ? WHERE id = ?",
-                libsql::params![status, result, summary, interaction_id, inline_review, logs, review_id],
+                libsql::params![status, result, summary, interaction_id, inline_review.map(crate::compression::compress_string_if_needed).unwrap_or(libsql::Value::Null), logs.map(crate::compression::compress_string_if_needed).unwrap_or(libsql::Value::Null), review_id],
             )
             .await?;
         Ok(())
@@ -904,8 +909,8 @@ impl Database {
                 params.workflow_id,
                 params.provider,
                 params.model,
-                params.input,
-                params.output,
+                crate::compression::compress_string_if_needed(params.input),
+                crate::compression::compress_string_if_needed(params.output),
                 params.tokens_in,
                 params.tokens_out,
                 params.tokens_cached,
@@ -1661,7 +1666,7 @@ impl Database {
                 git_blob_hash=excluded.git_blob_hash,
                 mailing_list=excluded.mailing_list,
                 references_hdr=excluded.references_hdr",
-            libsql::params![message_id, thread_id, in_reply_to, author, subject, date, body, to, cc, git_blob_hash, mailing_list, references_hdr],
+            libsql::params![message_id, thread_id, in_reply_to, author, subject, date, crate::compression::compress_string_if_needed(body), to, cc, git_blob_hash, mailing_list, references_hdr],
         ).await?;
         Ok(())
     }
@@ -2222,7 +2227,7 @@ impl Database {
                 patchset_id=excluded.patchset_id,
                 part_index=excluded.part_index,
                 diff=excluded.diff",
-            libsql::params![patchset_id, message_id, part_index, diff]
+            libsql::params![patchset_id, message_id, part_index, crate::compression::compress_string_if_needed(diff)]
         ).await?;
 
         // Update received_parts for the NEW patchset
@@ -2530,7 +2535,7 @@ impl Database {
                 author: row.get(4).ok(),
                 subject: row.get(5).ok(),
                 date: row.get(6).ok(),
-                body: row.get(7).ok(),
+                body: crate::compression::get_compressed_string_opt(&row, 7).unwrap_or(None),
                 to: row.get(8).ok(),
                 cc: row.get(9).ok(),
                 git_blob_hash: row.get(10).ok(),
@@ -2651,7 +2656,8 @@ impl Database {
             let failed_reason: Option<String> = row.get(11).ok();
             let model_name: Option<String> = row.get(12).ok();
             let prompts_git_hash: Option<String> = row.get(13).ok();
-            let baseline_logs: Option<String> = row.get(14).ok();
+            let baseline_logs: Option<String> =
+                crate::compression::get_compressed_string_opt(&row, 14).unwrap_or(None);
             let baseline_id: Option<i64> = row.get(15).ok();
             let provider: Option<String> = row.get(16).ok();
             let embargo_until: Option<i64> = row.get(17).ok();
@@ -2785,11 +2791,11 @@ impl Database {
                 reviews.push(serde_json::json!({
                     "summary": r.get::<Option<String>>(0).ok(),
                     "created_at": r.get::<Option<i64>>(1).ok(),
-                    "output": r.get::<Option<String>>(3).ok(),
+                    "output": crate::compression::get_compressed_string_opt(&r, 3).unwrap_or(None),
                     "result": r.get::<Option<String>>(4).ok(),
                     "status": r.get::<Option<String>>(5).ok(),
-                    "inline_review": r.get::<Option<String>>(6).ok(),
-                    "logs": r.get::<Option<String>>(7).ok(),
+                    "inline_review": crate::compression::get_compressed_string_opt(&r, 6).unwrap_or(None),
+                    "logs": crate::compression::get_compressed_string_opt(&r, 7).unwrap_or(None),
                     "tokens_in": r.get::<Option<u32>>(8).ok(),
                     "tokens_out": r.get::<Option<u32>>(9).ok(),
                     "patch_id": r.get::<Option<i64>>(10).ok(),
@@ -2896,7 +2902,8 @@ impl Database {
             let failed_reason: Option<String> = row.get(11).ok();
             let model_name: Option<String> = row.get(12).ok();
             let prompts_git_hash: Option<String> = row.get(13).ok();
-            let baseline_logs: Option<String> = row.get(14).ok();
+            let baseline_logs: Option<String> =
+                crate::compression::get_compressed_string_opt(&row, 14).unwrap_or(None);
             let baseline_id: Option<i64> = row.get(15).ok();
             let provider: Option<String> = row.get(16).ok();
             let embargo_until: Option<i64> = row.get(17).ok();
@@ -3026,10 +3033,10 @@ impl Database {
                 reviews.push(serde_json::json!({
                     "summary": r.get::<Option<String>>(0).ok(),
                     "created_at": r.get::<Option<i64>>(1).ok(),
-                    "output": r.get::<Option<String>>(2).ok(),
+                    "output": crate::compression::get_compressed_string_opt(&r, 2).unwrap_or(None),
                     "result": r.get::<Option<String>>(3).ok(),
                     "status": r.get::<Option<String>>(4).ok(),
-                    "inline_review": r.get::<Option<String>>(5).ok(),
+                    "inline_review": crate::compression::get_compressed_string_opt(&r, 5).unwrap_or(None),
                     "tokens_in": r.get::<Option<u32>>(6).ok(),
                     "tokens_out": r.get::<Option<u32>>(7).ok(),
                     "patch_id": r.get::<Option<i64>>(8).ok(),
@@ -3197,8 +3204,8 @@ impl Database {
                 "model": r.get::<Option<String>>(1).ok(),
                 "summary": r.get::<Option<String>>(2).ok(),
                 "created_at": r.get::<Option<i64>>(3).ok(),
-                "input": r.get::<Option<String>>(4).ok(),
-                "output": r.get::<Option<String>>(5).ok(),
+                "input": crate::compression::get_compressed_string_opt(&r, 4).unwrap_or(None),
+                "output": crate::compression::get_compressed_string_opt(&r, 5).unwrap_or(None),
                 "baseline": {
                     "repo_url": r.get::<Option<String>>(6).ok(),
                     "branch": r.get::<Option<String>>(7).ok(),
@@ -3208,8 +3215,8 @@ impl Database {
                 "prompts_hash": r.get::<Option<String>>(10).ok(),
                 "result": r.get::<Option<String>>(11).ok(),
                 "status": r.get::<Option<String>>(12).ok(),
-                "inline_review": r.get::<Option<String>>(13).ok(),
-                "logs": r.get::<Option<String>>(14).ok(),
+                "inline_review": crate::compression::get_compressed_string_opt(&r, 13).unwrap_or(None),
+                "logs": crate::compression::get_compressed_string_opt(&r, 14).unwrap_or(None),
                 "tokens_in": r.get::<Option<u32>>(15).ok(),
                 "tokens_out": r.get::<Option<u32>>(16).ok(),
                 "patch_id": r.get::<Option<i64>>(17).ok(),
@@ -3260,7 +3267,7 @@ impl Database {
         while let Ok(Some(row)) = rows.next().await {
             let id: i64 = row.get(0)?;
             let index: i64 = row.get(1).unwrap_or(0);
-            let diff: String = row.get(2)?;
+            let diff: String = crate::compression::get_compressed_string(&row, 2)?;
             let subject: String = row.get(3).unwrap_or_default();
             let author: String = row.get(4).unwrap_or_default();
             let date: i64 = row.get(5).unwrap_or(0);
@@ -3787,7 +3794,7 @@ impl Database {
         self.conn
             .execute(
                 "UPDATE patchsets SET baseline_id = ?, model_name = ?, prompts_git_hash = ?, baseline_logs = ?, provider = ? WHERE id = ?",
-                libsql::params![baseline_id, model_name, prompts_hash, logs, provider, id],
+                libsql::params![baseline_id, model_name, prompts_hash, logs.map(crate::compression::compress_string_if_needed).unwrap_or(libsql::Value::Null), provider, id],
             )
             .await?;
         Ok(())
