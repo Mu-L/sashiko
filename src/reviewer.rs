@@ -694,8 +694,12 @@ impl Reviewer {
             failed_patches += main_failed;
 
             for handle in handles {
-                if let Ok(failed) = handle.await {
-                    failed_patches += failed;
+                match handle.await {
+                    Ok(failed) => failed_patches += failed,
+                    Err(e) => {
+                        error!("Review worker tokio task crashed/panicked: {}", e);
+                        failed_patches += 1;
+                    }
                 }
             }
 

@@ -3517,8 +3517,12 @@ impl Database {
         while let Ok(Some(row)) = rows.next().await {
             let review_id: i64 = row.get(0)?;
             let patch_id: i64 = row.get(1)?;
-            let inline_review: String = row.get(2).unwrap_or_default();
-            let summary: String = row.get(3).unwrap_or_default();
+            let inline_review: String = crate::compression::get_compressed_string_opt(&row, 2)
+                .unwrap_or(None)
+                .unwrap_or_default();
+            let summary: String = crate::compression::get_compressed_string_opt(&row, 3)
+                .unwrap_or(None)
+                .unwrap_or_default();
             let patch_message_id: String = row.get(4).unwrap_or_default();
             let index: i64 = row.get(5).unwrap_or_default();
             temp_reviews.push((
