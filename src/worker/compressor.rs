@@ -78,22 +78,31 @@ async fn compress_messages(db: &Database, limit: i32) -> Result<usize> {
         let body: String = row.get(1)?;
         to_update.push((id, body));
     }
-    
+
     let count = to_update.len();
     if count == 0 {
         return Ok(0);
     }
 
     let compressed: Vec<(i64, Value)> = tokio::task::spawn_blocking(move || {
-        to_update.into_iter().map(|(id, body)| {
-            (id, compress_string_if_needed(&body))
-        }).collect()
-    }).await?;
+        to_update
+            .into_iter()
+            .map(|(id, body)| (id, compress_string_if_needed(&body)))
+            .collect()
+    })
+    .await?;
 
     db.begin_transaction().await?;
     let mut success = true;
     for (id, val) in compressed {
-        if let Err(e) = db.conn.execute("UPDATE messages SET body = ? WHERE id = ?", libsql::params![val, id]).await {
+        if let Err(e) = db
+            .conn
+            .execute(
+                "UPDATE messages SET body = ? WHERE id = ?",
+                libsql::params![val, id],
+            )
+            .await
+        {
             error!("Fail in messages update: {}", e);
             success = false;
             break;
@@ -126,15 +135,24 @@ async fn compress_patches(db: &Database, limit: i32) -> Result<usize> {
     }
 
     let compressed: Vec<(i64, Value)> = tokio::task::spawn_blocking(move || {
-        to_update.into_iter().map(|(id, diff)| {
-            (id, compress_string_if_needed(&diff))
-        }).collect()
-    }).await?;
+        to_update
+            .into_iter()
+            .map(|(id, diff)| (id, compress_string_if_needed(&diff)))
+            .collect()
+    })
+    .await?;
 
     db.begin_transaction().await?;
     let mut success = true;
     for (id, val) in compressed {
-        if let Err(e) = db.conn.execute("UPDATE patches SET diff = ? WHERE id = ?", libsql::params![val, id]).await {
+        if let Err(e) = db
+            .conn
+            .execute(
+                "UPDATE patches SET diff = ? WHERE id = ?",
+                libsql::params![val, id],
+            )
+            .await
+        {
             error!("Fail in patches update: {}", e);
             success = false;
             break;
@@ -167,15 +185,24 @@ async fn compress_patchsets(db: &Database, limit: i32) -> Result<usize> {
     }
 
     let compressed: Vec<(i64, Value)> = tokio::task::spawn_blocking(move || {
-        to_update.into_iter().map(|(id, logs)| {
-            (id, compress_string_if_needed(&logs))
-        }).collect()
-    }).await?;
+        to_update
+            .into_iter()
+            .map(|(id, logs)| (id, compress_string_if_needed(&logs)))
+            .collect()
+    })
+    .await?;
 
     db.begin_transaction().await?;
     let mut success = true;
     for (id, val) in compressed {
-        if let Err(e) = db.conn.execute("UPDATE patchsets SET baseline_logs = ? WHERE id = ?", libsql::params![val, id]).await {
+        if let Err(e) = db
+            .conn
+            .execute(
+                "UPDATE patchsets SET baseline_logs = ? WHERE id = ?",
+                libsql::params![val, id],
+            )
+            .await
+        {
             error!("Fail in patchsets update: {}", e);
             success = false;
             break;
@@ -191,7 +218,7 @@ async fn compress_patchsets(db: &Database, limit: i32) -> Result<usize> {
 
 async fn compress_reviews(db: &Database, limit: i32) -> Result<usize> {
     let mut count = 0;
-    
+
     // Logs
     let mut rows = db.conn.query(
         "SELECT id, logs FROM reviews WHERE typeof(logs) = 'text' AND length(logs) > 1024 LIMIT ?",
@@ -208,13 +235,24 @@ async fn compress_reviews(db: &Database, limit: i32) -> Result<usize> {
     if !to_update_logs.is_empty() {
         count += to_update_logs.len();
         let compressed: Vec<(i64, Value)> = tokio::task::spawn_blocking(move || {
-            to_update_logs.into_iter().map(|(id, l)| (id, compress_string_if_needed(&l))).collect()
-        }).await?;
+            to_update_logs
+                .into_iter()
+                .map(|(id, l)| (id, compress_string_if_needed(&l)))
+                .collect()
+        })
+        .await?;
 
         db.begin_transaction().await?;
         let mut success = true;
         for (id, val) in compressed {
-            if let Err(e) = db.conn.execute("UPDATE reviews SET logs = ? WHERE id = ?", libsql::params![val, id]).await {
+            if let Err(e) = db
+                .conn
+                .execute(
+                    "UPDATE reviews SET logs = ? WHERE id = ?",
+                    libsql::params![val, id],
+                )
+                .await
+            {
                 error!("Fail in reviews log update: {}", e);
                 success = false;
                 break;
@@ -243,13 +281,24 @@ async fn compress_reviews(db: &Database, limit: i32) -> Result<usize> {
     if !to_update_inline.is_empty() {
         count += to_update_inline.len();
         let compressed: Vec<(i64, Value)> = tokio::task::spawn_blocking(move || {
-            to_update_inline.into_iter().map(|(id, i)| (id, compress_string_if_needed(&i))).collect()
-        }).await?;
+            to_update_inline
+                .into_iter()
+                .map(|(id, i)| (id, compress_string_if_needed(&i)))
+                .collect()
+        })
+        .await?;
 
         db.begin_transaction().await?;
         let mut success = true;
         for (id, val) in compressed {
-            if let Err(e) = db.conn.execute("UPDATE reviews SET inline_review = ? WHERE id = ?", libsql::params![val, id]).await {
+            if let Err(e) = db
+                .conn
+                .execute(
+                    "UPDATE reviews SET inline_review = ? WHERE id = ?",
+                    libsql::params![val, id],
+                )
+                .await
+            {
                 error!("Fail in reviews inline update: {}", e);
                 success = false;
                 break;
@@ -285,23 +334,34 @@ async fn compress_ai_interactions(db: &Database, limit: i32) -> Result<usize> {
     }
 
     let compressed: Vec<(String, Value, Value)> = tokio::task::spawn_blocking(move || {
-        to_update.into_iter().map(|(id, input_val, output_val)| {
-            let new_input = match input_val {
-                Value::Text(s) => compress_string_if_needed(&s),
-                other => other,
-            };
-            let new_output = match output_val {
-                Value::Text(s) => compress_string_if_needed(&s),
-                other => other,
-            };
-            (id, new_input, new_output)
-        }).collect()
-    }).await?;
+        to_update
+            .into_iter()
+            .map(|(id, input_val, output_val)| {
+                let new_input = match input_val {
+                    Value::Text(s) => compress_string_if_needed(&s),
+                    other => other,
+                };
+                let new_output = match output_val {
+                    Value::Text(s) => compress_string_if_needed(&s),
+                    other => other,
+                };
+                (id, new_input, new_output)
+            })
+            .collect()
+    })
+    .await?;
 
     db.begin_transaction().await?;
     let mut success = true;
     for (id, new_input, new_output) in compressed {
-        if let Err(e) = db.conn.execute("UPDATE ai_interactions SET input_context = ?, output_raw = ? WHERE id = ?", libsql::params![new_input, new_output, id]).await {
+        if let Err(e) = db
+            .conn
+            .execute(
+                "UPDATE ai_interactions SET input_context = ?, output_raw = ? WHERE id = ?",
+                libsql::params![new_input, new_output, id],
+            )
+            .await
+        {
             error!("Fail in ai_interactions update: {}", e);
             success = false;
             break;
@@ -312,6 +372,6 @@ async fn compress_ai_interactions(db: &Database, limit: i32) -> Result<usize> {
     } else {
         let _ = db.conn.execute("ROLLBACK", ()).await;
     }
-    
+
     Ok(count)
 }
