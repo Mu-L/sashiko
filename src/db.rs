@@ -527,6 +527,7 @@ impl Database {
             info!("Database is now at version 1.");
         } else {
             info!("Database version is {}", current_version);
+            self.migrate_legacy_to_1().await?;
         }
 
         self.migrate_patches_unique_constraint_if_needed().await?;
@@ -9234,5 +9235,58 @@ mod tests {
             patch2.is_ok(),
             "Second patch with same SHA in different patchset must succeed after migration"
         );
+    }
+
+    #[tokio::test]
+    async fn test_migrate_adds_missing_columns_to_version_1_db() {
+        let db_settings = crate::settings::DatabaseSettings {
+            url: ":memory:".to_string(),
+            token: String::new(),
+        };
+        let db = Database::new(&db_settings).await.unwrap();
+
+        // 1. Set up a version 1 database that lacks baseline_part_index in patchsets
+        db.conn
+            .execute_batch(
+                "CREATE TABLE threads (id INTEGER PRIMARY KEY, root_message_id TEXT, subject TEXT, last_updated INTEGER);
+                 CREATE TABLE messages (id INTEGER PRIMARY KEY, message_id TEXT NOT NULL UNIQUE, thread_id INTEGER, in_reply_to TEXT, author TEXT, subject TEXT, date INTEGER, body TEXT, to_recipients TEXT, cc_recipients TEXT, git_blob_hash TEXT, mailing_list TEXT, references_hdr TEXT);
+                 CREATE TABLE patchsets (id INTEGER PRIMARY KEY, thread_id INTEGER, cover_letter_message_id TEXT, subject TEXT, author TEXT, date INTEGER, status TEXT DEFAULT 'Incomplete', total_parts INTEGER, received_parts INTEGER, subject_index INTEGER DEFAULT 9999, parser_version INTEGER DEFAULT 0, to_recipients TEXT, cc_recipients TEXT, baseline_id INTEGER, model_name TEXT, mr_url TEXT, mr_title TEXT, mr_number INTEGER, prompts_git_hash TEXT, baseline_logs TEXT, failed_reason TEXT, skip_filters TEXT, only_filters TEXT, target_review_count INTEGER DEFAULT 1, provider TEXT, embargo_until INTEGER, embargo_release_started_at INTEGER, slug TEXT);
+                 CREATE TABLE patches (id INTEGER PRIMARY KEY, patchset_id INTEGER NOT NULL, message_id TEXT NOT NULL, part_index INTEGER, diff TEXT, status TEXT, apply_error TEXT, UNIQUE(patchset_id, message_id));
+                 PRAGMA user_version = 1;",
+            )
+            .await
+            .unwrap();
+
+        // 2. Run migrate()
+        db.migrate().await.unwrap();
+
+        // 3. Verify baseline_part_index column exists and can be inserted into
+        let author = "Dev <dev@example.com>";
+        let t = db
+            .create_thread("root2", "Test Thread 2", 1000)
+            .await
+            .unwrap();
+        let ps = db
+            .create_patchset(
+                t,
+                Some("ps_cover"),
+                "msg_sha",
+                "P1",
+                author,
+                1000,
+                1,
+                0,
+                "",
+                "",
+                None,
+                1,
+                None,
+                false,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(ps.is_some(), "create_patchset must succeed after migration");
     }
 }
