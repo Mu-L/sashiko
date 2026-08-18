@@ -2353,7 +2353,9 @@
 
             const modelName = data.model_name || '-';
             const providerModel = data.provider ? `${data.provider}/${modelName}` : modelName;
-            const promptsHash = data.prompts_git_hash ? data.prompts_git_hash.substring(0, 8) : '-';
+            const promptsHash = (data.prompts_git_hash || config.git_hash || config.version)
+                ? (data.prompts_git_hash || config.git_hash || config.version).substring(0, 8)
+                : '-';
             
             let baselineStr = '-';
             if (data.baseline) {
@@ -2907,7 +2909,10 @@ ${escapeHtml((data.body || '(no body)').replace(/\n+$/, ''), true, false)}${data
                 <h1>
                     <span>Interaction Log</span>
                      <span class="header-subtitle">
-                        ${data.model || '?'} · ${data.prompts_hash ? 'Sashiko ver.: ' + data.prompts_hash.substring(0, 8) + ' · ' : ''}
+                        ${(() => {
+                            const ver = data.prompts_hash || config.git_hash || config.version;
+                            return ver ? 'Sashiko ver.: ' + ver.substring(0, 8) + ' · ' : '';
+                        })()}
                         <span class="status-badge status-${(data.status || '').replace(/ /g, '')}">${data.status}</span>
                     </span>
                 </h1>

@@ -1157,6 +1157,8 @@ async fn get_config(
         "project_name": state.settings.project.name,
         "project_description": state.settings.project.description,
         "forge_enabled": state.settings.forge.enabled,
+        "version": env!("CARGO_PKG_VERSION"),
+        "git_hash": env!("GIT_HASH"),
     })))
 }
 
