@@ -16,7 +16,10 @@ use crate::{
     git_ops::{GitWorktree, extract_patch_metadata, get_commit_hash, resolve_git_range},
     settings::{AiSettings, Settings},
     toolbox::ToolBox,
-    worker::{PatchInput, ReviewInput, Worker, WorkerConfig, prompts::PromptRegistry},
+    worker::{
+        PatchInput, ReviewInput, Worker, WorkerConfig, calculate_series_range,
+        prompts::PromptRegistry,
+    },
 };
 use anyhow::{Context, Result, anyhow};
 use futures::stream::StreamExt;
@@ -414,6 +417,7 @@ async fn review_single_patch(
     patchset_id: i64,
     subject: &str,
     p: &PatchInput,
+    all_patches: &[PatchInput],
     rich_patches: &[Value],
     patch_shas: &HashMap<i64, String>,
     options: &WorkerOptions,
@@ -475,9 +479,12 @@ async fn review_single_patch(
         }
 
         let prompts = PromptRegistry::new(options.prompts.clone());
-        let series_range = patch_shas
-            .get(&p.index)
-            .map(|sha| format!("{}..{}", baseline_sha, sha));
+        let series_range = calculate_series_range(
+            all_patches,
+            std::slice::from_ref(p),
+            patch_shas,
+            baseline_sha,
+        );
 
         let mut worker = Worker::new(
             provider,
@@ -804,6 +811,7 @@ async fn run_worker_in_worktree(
         let patch_shas = &patch_shas;
         let options = &options;
         let subject_clone = subject.clone();
+        let all_patches = &patches;
         async move {
             review_single_patch(
                 worktree,
@@ -811,6 +819,7 @@ async fn run_worker_in_worktree(
                 patchset_id,
                 &subject_clone,
                 p,
+                all_patches,
                 &rich_patches,
                 patch_shas,
                 options,
@@ -1301,5 +1310,47 @@ mod tests {
         assert!(std::fs::read_to_string(worktree.path.join("file.txt"))?.contains("Change"));
 
         Ok(())
+    }
+
+    #[test]
+    fn test_series_range_in_local_review() {
+        let p1 = PatchInput {
+            index: 1,
+            diff: "diff1".to_string(),
+            subject: Some("Patch 1".to_string()),
+            author: None,
+            date: None,
+            message_id: None,
+            commit_id: Some("sha1".to_string()),
+        };
+        let p2 = PatchInput {
+            index: 2,
+            diff: "diff2".to_string(),
+            subject: Some("Patch 2".to_string()),
+            author: None,
+            date: None,
+            message_id: None,
+            commit_id: Some("sha2".to_string()),
+        };
+        let all_patches = vec![p1.clone(), p2.clone()];
+        let mut patch_shas = HashMap::new();
+        patch_shas.insert(1, "sha1".to_string());
+        patch_shas.insert(2, "sha2".to_string());
+
+        let range_p1 = calculate_series_range(
+            &all_patches,
+            std::slice::from_ref(&p1),
+            &patch_shas,
+            "baseline_sha",
+        );
+        assert_eq!(range_p1, Some("baseline_sha..sha2".to_string()));
+
+        let range_p2 = calculate_series_range(
+            &all_patches,
+            std::slice::from_ref(&p2),
+            &patch_shas,
+            "baseline_sha",
+        );
+        assert_eq!(range_p2, None);
     }
 }
