@@ -980,7 +980,7 @@ You MUST respond with ONLY a JSON object, no other text. Example:
         let deduplicated_dismissed_concerns;
         {
             let stage = 8;
-            let (stage_prompt, _) = self.prompts.get_stage_prompt(stage).await?;
+            let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
 
             let aggregated_concerns_json =
@@ -1046,17 +1046,56 @@ Example Output:
             let clean_user_prompt = format!(
                 r#"{}
 
-Consolidated Concerns:
+Aggregated Concerns:
 {}
 
-Consolidated Dismissed Concerns:
+Aggregated Dismissed Concerns:
 {}
 
 Return ONLY a JSON object with 'concerns' and 'dismissed_concerns' arrays.
 Each object in the 'concerns' array MUST use exactly the following keys: "type", "description", "reasoning", "preexisting", "locations".
 Each object in the 'dismissed_concerns' array MUST use exactly the following keys: "type", "description", "reasoning", "locations".
-Preserve the most precise location details from the input. Do not invent line numbers; use null when exact values are unknown."#,
-                stage_prompt, aggregated_concerns_json, aggregated_dismissed_concerns_json
+Preserve the most precise location details from the input. Do not invent line numbers; use null when exact values are unknown.
+
+Example Output:
+```json
+{{
+  "concerns": [
+    {{
+      "type": "Memory Leak",
+      "description": "Memory leak in function X",
+      "reasoning": "1. X is called.\n2. Y is allocated but not freed on error path.",
+      "preexisting": false,
+      "locations": [
+        {{
+          "file": "path/to/file.c",
+          "function_or_symbol": "function_name",
+          "line": 123,
+          "code_snippet": "problematic_code();",
+          "why_this_location_matters": "This is where the newly allocated resource is dropped on the error path."
+        }}
+      ]
+    }}
+  ],
+  "dismissed_concerns": [
+    {{
+      "type": "Resource Management",
+      "description": "Possible missing cleanup when foo_init() fails after bar_alloc().",
+      "reasoning": "The concrete code path or ordering that proves this candidate concern does not apply.",
+      "locations": [
+        {{
+          "file": "path/to/file.c",
+          "function_or_symbol": "function_name",
+          "line": 125,
+          "code_snippet": "safe_code_path();",
+          "why_this_location_matters": "This is where the cleanup path proves the candidate leak does not apply."
+        }}
+      ]
+    }}
+  ]
+}}
+```"#,
+                clean_stage_prompt, aggregated_concerns_json, aggregated_dismissed_concerns_json
             );
 
             let stage_impl = create_stage(stage);
@@ -1301,11 +1340,6 @@ Example Output:
             let conflict_resolved_concerns_json =
                 serde_json::to_string_pretty(&conflict_resolved_concerns).unwrap_or_default();
             let series_section = follow_up_context.as_deref().unwrap_or("");
-            let clean_series_section = if follow_up_context.is_some() {
-                "\n\n{{series context}}"
-            } else {
-                ""
-            };
 
             let user_prompt = format!(
                 "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.{}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset), \"locations\" (an array of objects with file, function_or_symbol, line, code_snippet, and why_this_location_matters). Carry forward the locations from the validated concern; if you gather better evidence, replace vague locations with the most precise verified locations. Do not invent line numbers; use null when exact values are unknown.\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false,\n      \"locations\": [\n        {{\n          \"file\": \"path/to/file.c\",\n          \"function_or_symbol\": \"function_name\",\n          \"line\": 123,\n          \"code_snippet\": \"problematic_code();\",\n          \"why_this_location_matters\": \"This is where the newly allocated resource is dropped on the error path.\"\n        }}\n      ]\n    }}\n  ]\n}}\n```",
@@ -1314,7 +1348,7 @@ Example Output:
 
             let clean_user_prompt = format!(
                 "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.{}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset), \"locations\" (an array of objects with file, function_or_symbol, line, code_snippet, and why_this_location_matters). Carry forward the locations from the validated concern; if you gather better evidence, replace vague locations with the most precise verified locations. Do not invent line numbers; use null when exact values are unknown.\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false,\n      \"locations\": [\n        {{\n          \"file\": \"path/to/file.c\",\n          \"function_or_symbol\": \"function_name\",\n          \"line\": 123,\n          \"code_snippet\": \"problematic_code();\",\n          \"why_this_location_matters\": \"This is where the newly allocated resource is dropped on the error path.\"\n        }}\n      ]\n    }}\n  ]\n}}\n```",
-                clean_stage_prompt, clean_series_section, conflict_resolved_concerns_json
+                clean_stage_prompt, series_section, conflict_resolved_concerns_json
             );
 
             let stage_impl = create_stage(stage);
@@ -2841,5 +2875,115 @@ mod tests {
         assert!(sys_content.contains("Target Commit SHA: sha1"));
         assert!(sys_content.contains("patch1_unique_symbol"));
         assert!(!sys_content.contains("patch2_unique_symbol"));
+    }
+
+    struct MockMultiStageSeriesProvider;
+
+    #[async_trait::async_trait]
+    impl crate::ai::AiProvider for MockMultiStageSeriesProvider {
+        async fn generate_content(
+            &self,
+            request: crate::ai::AiRequest,
+        ) -> anyhow::Result<crate::ai::AiResponse> {
+            let last_user = request
+                .messages
+                .iter()
+                .rfind(|m| m.role == crate::ai::AiRole::User)
+                .and_then(|m| m.content.as_deref())
+                .unwrap_or_default();
+
+            let content = if last_user.contains("# Stage 1.") || last_user.contains("# Stage 8.") {
+                r#"{"concerns": [{"type": "Bug", "description": "some issue", "reasoning": "reason", "preexisting": false, "locations": []}], "dismissed_concerns": []}"#
+            } else if last_user.contains("# Stage 9.") {
+                r#"{"concerns": [{"type": "Bug", "description": "some issue", "reasoning": "reason", "preexisting": false, "locations": []}]}"#
+            } else if last_user.contains("# Stage 10.") {
+                r#"{"findings": []}"#
+            } else {
+                r#"{"concerns": [], "dismissed_concerns": []}"#
+            };
+
+            Ok(crate::ai::AiResponse {
+                content: Some(content.to_string()),
+                thought: None,
+                thought_signature: None,
+                tool_calls: None,
+                usage: None,
+                truncated: false,
+            })
+        }
+
+        fn estimate_tokens(&self, _request: &crate::ai::AiRequest) -> usize {
+            0
+        }
+
+        fn get_capabilities(&self) -> crate::ai::ProviderCapabilities {
+            crate::ai::ProviderCapabilities {
+                model_name: "mock".to_string(),
+                context_window_size: 1000,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stage_10_log_history_contains_follow_up_series_context() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("prompts");
+        std::fs::create_dir_all(&prompts_dir).unwrap();
+
+        let provider = std::sync::Arc::new(MockMultiStageSeriesProvider);
+        let tools = crate::toolbox::ToolBox::new(temp_dir.path().to_path_buf(), None);
+        let prompts = PromptRegistry::new(prompts_dir);
+        let config = WorkerConfig {
+            max_input_tokens: 10000,
+            max_interactions: 3,
+            temperature: 0.0,
+            series_range: Some("base_sha..sha2".to_string()),
+            baseline_sha: Some("base_sha".to_string()),
+            custom_prompt: None,
+            stages: Some(vec![1]),
+        };
+        let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
+
+        let patchset = serde_json::json!({
+            "id": 200,
+            "patch_index": 1,
+            "patches": [
+                {
+                    "index": 1,
+                    "subject": "Patch 1 Subject",
+                    "diff": "diff --git a/file1.c b/file1.c\n+int patch1;",
+                    "commit_id": "sha1"
+                },
+                {
+                    "index": 2,
+                    "subject": "Patch 2 Subject",
+                    "diff": "diff --git a/file2.c b/file2.c\n+int patch2;",
+                    "commit_id": "sha2"
+                }
+            ]
+        });
+
+        let res = worker.run(patchset, None).await;
+        assert!(res.is_ok());
+        let worker_res = res.unwrap();
+        assert!(!worker_res.history.is_empty());
+
+        let stage10_user_msg = worker_res
+            .history
+            .iter()
+            .find(|m| {
+                m.role == crate::ai::AiRole::User
+                    && m.content
+                        .as_deref()
+                        .unwrap_or_default()
+                        .contains("# Stage 10.")
+            })
+            .expect("Stage 10 user message should be in history");
+
+        let content = stage10_user_msg.content.as_deref().unwrap();
+        assert!(content.contains("=== Follow-Up Patches in Series ==="));
+        assert!(content.contains("Series End Commit (Final State): sha2"));
+        assert!(content.contains("- [Patch 2 of 2] (commit sha2): Patch 2 Subject"));
+        assert!(content.contains("SERIES VERIFICATION DIRECTIVE:"));
     }
 }
