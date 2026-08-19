@@ -322,3 +322,9 @@ cc = ["Mark Fasheh <mark@fasheh.com>",
       "Joel Becker <jlbec@evilplan.org>",
       "Joseph Qi <joseph.qi@linux.alibaba.com>"]
 
+[subsystems.linux-serial]
+lists = ["linux-serial@vger.kernel.org"]
+reply_to_author = true
+send_positive_review = true
+cc = ["linux-serial@vger.kernel.org"]
+
