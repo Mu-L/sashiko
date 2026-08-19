@@ -573,7 +573,21 @@ impl Worker {
         }
 
         if let Some(patches) = patchset["patches"].as_array() {
-            for p in patches {
+            let target_patches: Vec<&Value> = if let Some(idx) = patchset["patch_index"].as_i64() {
+                let filtered: Vec<&Value> = patches
+                    .iter()
+                    .filter(|p| p["index"].as_i64() == Some(idx))
+                    .collect();
+                if filtered.is_empty() {
+                    patches.iter().collect()
+                } else {
+                    filtered
+                }
+            } else {
+                patches.iter().collect()
+            };
+
+            for p in target_patches {
                 let diff_body = p["diff"].as_str().unwrap_or("");
                 let changelog_opt = crate::patch::extract_changelog_from_body(diff_body);
 
@@ -1796,6 +1810,8 @@ pub fn build_follow_up_series_context(
         return None;
     }
 
+    follow_ups.sort_by_key(|(idx, _, _)| *idx);
+
     let mut block = String::new();
     block.push_str("\n\n=== Follow-Up Patches in Series ===\n");
     block.push_str(&format!(
@@ -1819,10 +1835,22 @@ pub fn build_follow_up_series_context(
         }
     }
 
+    let diff_directive = if target_commit_sha != "unknown" && !target_commit_sha.is_empty() {
+        format!(
+            "Use tools (e.g., git_diff with base_revision=\"{}\", target_revision=\"{}\", or git_read_files with revision=\"{}\") to inspect the final code state at the end of the series.",
+            target_commit_sha, end_sha, end_sha
+        )
+    } else {
+        format!(
+            "Use tools (e.g., git_diff with target_revision=\"{}\", or git_read_files with revision=\"{}\") to inspect the final code state at the end of the series.",
+            end_sha, end_sha
+        )
+    };
+
     block.push_str("\nSERIES VERIFICATION DIRECTIVE:\n");
     block.push_str(&format!(
-        "Verify if any candidate concern raised against this patch is fixed, refactored, or resolved in the subsequent patches listed above. Use tools (e.g., git_diff with base_revision=\"{}\", target_revision=\"{}\", or git_read_files with revision=\"{}\") to inspect the final code state at the end of the series. If a concern is resolved by follow-up patches in this series, discard it as a false positive.\n",
-        target_commit_sha, end_sha, end_sha
+        "Verify if any candidate concern raised against this patch is fixed, refactored, or resolved in the subsequent patches listed above. {} If a concern is resolved by follow-up patches in this series, discard it as a false positive.\n",
+        diff_directive
     ));
     block.push_str("===================================\n");
 
@@ -2289,6 +2317,43 @@ mod tests {
         assert!(content.contains("git_read_files with revision=\"sha3\""));
     }
 
+    #[test]
+    fn test_build_follow_up_series_context_unordered_patches() {
+        let patchset = serde_json::json!({
+            "patch_index": 1,
+            "patches": [
+                { "index": 3, "subject": "Patch 3", "commit_id": "sha3" },
+                { "index": 1, "subject": "Patch 1", "commit_id": "sha1" },
+                { "index": 2, "subject": "Patch 2", "commit_id": "sha2" }
+            ]
+        });
+        let ctx = build_follow_up_series_context(Some("base..sha3"), &patchset, "sha1");
+        assert!(ctx.is_some());
+        let content = ctx.unwrap();
+        let p2_pos = content.find("Patch 2 of 3").unwrap();
+        let p3_pos = content.find("Patch 3 of 3").unwrap();
+        assert!(
+            p2_pos < p3_pos,
+            "Patch 2 should appear before Patch 3 in follow-up list"
+        );
+    }
+
+    #[test]
+    fn test_build_follow_up_series_context_unknown_target_sha() {
+        let patchset = serde_json::json!({
+            "patch_index": 1,
+            "patches": [
+                { "index": 1, "subject": "Patch 1" },
+                { "index": 2, "subject": "Patch 2", "commit_id": "sha2" }
+            ]
+        });
+        let ctx = build_follow_up_series_context(Some("base..sha2"), &patchset, "unknown");
+        assert!(ctx.is_some());
+        let content = ctx.unwrap();
+        assert!(!content.contains("base_revision=\"unknown\""));
+        assert!(content.contains("target_revision=\"sha2\""));
+    }
+
     struct MockProviderAlwaysFails;
     #[async_trait::async_trait]
     impl crate::ai::AiProvider for MockProviderAlwaysFails {
@@ -2725,5 +2790,56 @@ mod tests {
         let sys_content = worker_res.history[0].content.as_deref().unwrap_or_default();
         assert!(sys_content.contains("Baseline SHA: explicit_baseline_sha"));
         assert!(sys_content.contains("Target Commit SHA: target_sha"));
+    }
+
+    #[tokio::test]
+    async fn test_multi_patch_worker_context_only_contains_target_patch_diff() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("prompts");
+        std::fs::create_dir_all(&prompts_dir).unwrap();
+
+        let provider = std::sync::Arc::new(MockBlockedProvider {
+            attempts: AtomicUsize::new(0),
+        });
+        let tools = crate::toolbox::ToolBox::new(temp_dir.path().to_path_buf(), None);
+        let prompts = PromptRegistry::new(prompts_dir);
+        let config = WorkerConfig {
+            max_input_tokens: 10000,
+            max_interactions: 3,
+            temperature: 0.0,
+            series_range: Some("base_sha..sha2".to_string()),
+            baseline_sha: Some("base_sha".to_string()),
+            custom_prompt: None,
+            stages: Some(vec![1]),
+        };
+        let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
+
+        let patchset = serde_json::json!({
+            "id": 100,
+            "patch_index": 1,
+            "patches": [
+                {
+                    "index": 1,
+                    "subject": "Patch 1 Subject",
+                    "diff": "diff --git a/file1.c b/file1.c\n+int patch1_unique_symbol;",
+                    "commit_id": "sha1"
+                },
+                {
+                    "index": 2,
+                    "subject": "Patch 2 Subject",
+                    "diff": "diff --git a/file2.c b/file2.c\n+int patch2_unique_symbol;",
+                    "commit_id": "sha2"
+                }
+            ]
+        });
+
+        let res = worker.run(patchset, None).await;
+        assert!(res.is_ok());
+        let worker_res = res.unwrap();
+        assert!(!worker_res.history.is_empty());
+        let sys_content = worker_res.history[0].content.as_deref().unwrap_or_default();
+        assert!(sys_content.contains("Target Commit SHA: sha1"));
+        assert!(sys_content.contains("patch1_unique_symbol"));
+        assert!(!sys_content.contains("patch2_unique_symbol"));
     }
 }
