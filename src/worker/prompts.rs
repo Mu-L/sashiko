@@ -92,6 +92,7 @@ pub struct WorkerConfig {
     pub temperature: f32,
     pub custom_prompt: Option<String>,
     pub series_range: Option<String>,
+    pub baseline_sha: Option<String>,
     pub stages: Option<Vec<u8>>,
 }
 
@@ -301,7 +302,7 @@ Your task is to identify whether any remaining concern conflicts with a dismisse
 You are the lead reviewer validating consolidated concerns. You will be given a list of deduplicated concerns after conflict resolution.
 1. Validate each concern and prove the provided reasoning. Report all valid concerns as findings. If necessary, use tools to gather additional material. Discard all false positives.
 2. CRITICAL RULE: To discard a concern as a false positive, you MUST find concrete proof that explicitly invalidates the concern's reasoning. If you cannot find definitive proof that the concern is a false positive, it must be reported as a finding. If you're not sure about something and it's critical in the reasoning validation, make it obvious: if X is possible, then problem Y can occur. Always try to validate if X is possible yourself.
-3. SERIES VALIDATION RULE: If you are reviewing a patch that is NOT the last patch in the series (indicated by the presence of subsequent patches in the Full Series Context), you MUST check if each identified concern is still a problem in the final state of the series (the end of the Series Range). If the problem has been resolved, fixed, or the code was rewritten in a subsequent patch in this series, you MUST discard the concern and NOT report it as a finding. You MUST verify this by checking the actual code at the end of the series using tools; do not trust promises or claims in commit messages.
+3. SERIES VALIDATION RULE: If follow-up patches in this series are provided in the context, check if each identified concern is resolved or fixed in the final state of the series. If the problem has been resolved, fixed, or the code was rewritten in a subsequent patch in this series, you MUST discard the concern and NOT report it as a finding. You MUST verify this by checking the actual code at the end of the series using tools; do not trust promises or claims in commit messages.
 4. When referring to other patches within this series in your explanation, DO NOT use git hashes (they are ephemeral/unstable). Instead, refer to them by their patch subject (e.g., 'commit \"mm: fix allocation\"'). Existing historical commits in the tree should still be referenced by their standard hash.
 5. Assign a severity (low, medium, high, critical) to each remaining valid finding, following the calibration guidance in the severity definitions: reason through consequence, triggering path, and reachability, and state that reasoning at the start of the finding's `severity_explanation` so the label is auditable. Raise the level for a bug reachable by untrusted or remote input, and do not lower it because you believe the code is unreachable. A finding you can only state speculatively is capped at medium but still reported, never dropped. Be rigorous in filtering out verifiable noise, but accurately report real logic flaws and edge cases.
 6. If the problem did exist in the code before the patch was applied, say it explicitly: 'This problem wasn't introduced by this patch, but...'. Discard low- and medium-severity pre-existing problems, report only high- and critical severity issues.
@@ -489,6 +490,7 @@ pub struct Worker {
     max_interactions: usize,
     temperature: f32,
     series_range: Option<String>,
+    baseline_sha: Option<String>,
     context_tag: Option<String>,
     stages: Option<Vec<u8>>,
 }
@@ -508,6 +510,7 @@ impl Worker {
             max_interactions: config.max_interactions,
             temperature: config.temperature,
             series_range: config.series_range,
+            baseline_sha: config.baseline_sha,
             context_tag: None,
             stages: config.stages,
         }
@@ -532,13 +535,26 @@ impl Worker {
             .unwrap_or_else(|| "multi".to_string());
         self.context_tag = Some(format!("[ps:{} p:{}] ", ps_id, p_id));
 
-        let mut baseline_sha = "unknown".to_string();
-        if let Some(ref range) = self.series_range {
-            let parts: Vec<&str> = range.split("..").collect();
-            if !parts.is_empty() {
-                baseline_sha = parts[0].to_string();
-            }
-        }
+        let baseline_sha = self
+            .baseline_sha
+            .clone()
+            .or_else(|| {
+                patchset
+                    .get("baseline")
+                    .and_then(|b| b.as_str())
+                    .map(|s| s.to_string())
+            })
+            .or_else(|| {
+                self.series_range.as_ref().and_then(|range| {
+                    let parts: Vec<&str> = range.split("..").collect();
+                    if !parts.is_empty() && !parts[0].is_empty() {
+                        Some(parts[0].to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_else(|| "unknown".to_string());
 
         let mut target_commit_sha = "unknown".to_string();
         if let Some(patches) = patchset["patches"].as_array() {
@@ -1262,47 +1278,29 @@ Example Output:
             let (stage_prompt, clean_stage_prompt) = self.prompts.get_stage_prompt(stage).await?;
             let system_prompt = shared_context.clone();
 
-            let full_series_context = if let Some(range) = &self.series_range {
-                let cmd_output = std::process::Command::new("git")
-                    .current_dir(self.tools.get_worktree_path())
-                    .args(["--no-pager", "log", "--reverse", "--format=%s", range])
-                    .output();
-
-                match cmd_output {
-                    Ok(out) if out.status.success() => {
-                        let subjects = String::from_utf8_lossy(&out.stdout).to_string();
-                        format!(
-                            "Series Range: {}\n\nPatches in series:\n{}",
-                            range, subjects
-                        )
-                    }
-                    Ok(out) => {
-                        warn!(
-                            "git log failed for range {}: {}",
-                            range,
-                            String::from_utf8_lossy(&out.stderr)
-                        );
-                        "Failed to retrieve full series context (git log error).".to_string()
-                    }
-                    Err(e) => {
-                        warn!("git command failed: {}", e);
-                        "Failed to retrieve full series context (git execution error).".to_string()
-                    }
-                }
-            } else {
-                "Not applicable (single patch or last patch in series).".to_string()
-            };
+            let follow_up_context = build_follow_up_series_context(
+                self.series_range.as_deref(),
+                &patchset,
+                &target_commit_sha,
+            );
 
             let conflict_resolved_concerns_json =
                 serde_json::to_string_pretty(&conflict_resolved_concerns).unwrap_or_default();
+            let series_section = follow_up_context.as_deref().unwrap_or("");
+            let clean_series_section = if follow_up_context.is_some() {
+                "\n\n{{series context}}"
+            } else {
+                ""
+            };
+
             let user_prompt = format!(
-                "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.\n\nFull Series Context:\n{}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset), \"locations\" (an array of objects with file, function_or_symbol, line, code_snippet, and why_this_location_matters). Carry forward the locations from the validated concern; if you gather better evidence, replace vague locations with the most precise verified locations. Do not invent line numbers; use null when exact values are unknown.\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false,\n      \"locations\": [\n        {{\n          \"file\": \"path/to/file.c\",\n          \"function_or_symbol\": \"function_name\",\n          \"line\": 123,\n          \"code_snippet\": \"problematic_code();\",\n          \"why_this_location_matters\": \"This is where the newly allocated resource is dropped on the error path.\"\n        }}\n      ]\n    }}\n  ]\n}}\n```",
-                stage_prompt, full_series_context, conflict_resolved_concerns_json
+                "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.{}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset), \"locations\" (an array of objects with file, function_or_symbol, line, code_snippet, and why_this_location_matters). Carry forward the locations from the validated concern; if you gather better evidence, replace vague locations with the most precise verified locations. Do not invent line numbers; use null when exact values are unknown.\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false,\n      \"locations\": [\n        {{\n          \"file\": \"path/to/file.c\",\n          \"function_or_symbol\": \"function_name\",\n          \"line\": 123,\n          \"code_snippet\": \"problematic_code();\",\n          \"why_this_location_matters\": \"This is where the newly allocated resource is dropped on the error path.\"\n        }}\n      ]\n    }}\n  ]\n}}\n```",
+                stage_prompt, series_section, conflict_resolved_concerns_json
             );
 
             let clean_user_prompt = format!(
-                "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.\n\nFull Series Context:\n{{{{series context}}}}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset), \"locations\" (an array of objects with file, function_or_symbol, line, code_snippet, and why_this_location_matters). Carry forward the locations from the validated concern; if you gather better evidence, replace vague locations with the most precise verified locations. Do not invent line numbers; use null when exact values are unknown.\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false,\n      \"locations\": [\n        {{\n          \"file\": \"path/to/file.c\",\n          \"function_or_symbol\": \"function_name\",\n          \"line\": 123,\n          \"code_snippet\": \"problematic_code();\",\n          \"why_this_location_matters\": \"This is where the newly allocated resource is dropped on the error path.\"\n        }}\n      ]\n    }}\n  ]\n}}\n```",
-                clean_stage_prompt, conflict_resolved_concerns_json
+                "{}\n\nCRITICAL REVIEW DIRECTIVE: To dismiss a concern as a false positive, you must find concrete evidence in the code that proves the concern is invalid (e.g., verifying the caller handles the edge case). If you cannot find concrete proof of safety, you must retain the concern.{}\n\nConsolidated Concerns:\n{}\n\nReturn ONLY a JSON object with a 'findings' array. Each object in the 'findings' array MUST use exactly the following keys: \"problem\" (a string containing the vulnerability description), \"severity\" (a string: Low, Medium, High, or Critical), \"severity_explanation\" (a string detailing the reasoning and proof), \"preexisting\" (a boolean: true if the problem already existed in the codebase before these patches were applied, or false if it was newly introduced by the reviewed patchset), \"locations\" (an array of objects with file, function_or_symbol, line, code_snippet, and why_this_location_matters). Carry forward the locations from the validated concern; if you gather better evidence, replace vague locations with the most precise verified locations. Do not invent line numbers; use null when exact values are unknown.\n\nExample Output:\n```json\n{{\n  \"findings\": [\n    {{\n      \"problem\": \"Memory leak in function X when condition Y is met.\",\n      \"severity\": \"High\",\n      \"severity_explanation\": \"1. Condition Y is met.\\\n2. The buffer is allocated but not freed before return.\",\n      \"preexisting\": false,\n      \"locations\": [\n        {{\n          \"file\": \"path/to/file.c\",\n          \"function_or_symbol\": \"function_name\",\n          \"line\": 123,\n          \"code_snippet\": \"problematic_code();\",\n          \"why_this_location_matters\": \"This is where the newly allocated resource is dropped on the error path.\"\n        }}\n      ]\n    }}\n  ]\n}}\n```",
+                clean_stage_prompt, clean_series_section, conflict_resolved_concerns_json
             );
 
             let stage_impl = create_stage(stage);
@@ -1763,6 +1761,74 @@ pub fn calculate_series_range(
     }
 }
 
+pub fn build_follow_up_series_context(
+    series_range: Option<&str>,
+    patchset: &Value,
+    target_commit_sha: &str,
+) -> Option<String> {
+    let range = series_range?;
+    let end_sha = range.split("..").nth(1)?;
+    if end_sha.is_empty() {
+        return None;
+    }
+
+    let current_idx = patchset["patch_index"].as_i64().unwrap_or(1);
+    let patches = patchset["patches"].as_array()?;
+    let total_patches = patches.len();
+
+    let current_subject = patches
+        .iter()
+        .find(|p| p["index"].as_i64() == Some(current_idx))
+        .and_then(|p| p["subject"].as_str())
+        .unwrap_or("unknown");
+
+    let mut follow_ups = Vec::new();
+    for p in patches {
+        let idx = p["index"].as_i64().unwrap_or(0);
+        if idx > current_idx {
+            let subj = p["subject"].as_str().unwrap_or("");
+            let commit_id = p["commit_id"].as_str();
+            follow_ups.push((idx, commit_id, subj));
+        }
+    }
+
+    if follow_ups.is_empty() {
+        return None;
+    }
+
+    let mut block = String::new();
+    block.push_str("\n\n=== Follow-Up Patches in Series ===\n");
+    block.push_str(&format!(
+        "Current Patch Under Review: [Patch {} of {}] - {}\n",
+        current_idx, total_patches, current_subject
+    ));
+    block.push_str(&format!("Series End Commit (Final State): {}\n\n", end_sha));
+    block.push_str("Subsequent patches in this series:\n");
+
+    for (idx, commit_id, subj) in follow_ups {
+        if let Some(sha) = commit_id {
+            block.push_str(&format!(
+                "- [Patch {} of {}] (commit {}): {}\n",
+                idx, total_patches, sha, subj
+            ));
+        } else {
+            block.push_str(&format!(
+                "- [Patch {} of {}]: {}\n",
+                idx, total_patches, subj
+            ));
+        }
+    }
+
+    block.push_str("\nSERIES VERIFICATION DIRECTIVE:\n");
+    block.push_str(&format!(
+        "Verify if any candidate concern raised against this patch is fixed, refactored, or resolved in the subsequent patches listed above. Use tools (e.g., git_diff with base_revision=\"{}\", target_revision=\"{}\", or git_read_files with revision=\"{}\") to inspect the final code state at the end of the series. If a concern is resolved by follow-up patches in this series, discard it as a false positive.\n",
+        target_commit_sha, end_sha, end_sha
+    ));
+    block.push_str("===================================\n");
+
+    Some(block)
+}
+
 fn append_stage_items(
     target: &mut Vec<Value>,
     items: &[Value],
@@ -2168,6 +2234,61 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_build_follow_up_series_context_none_when_no_range() {
+        let patchset = serde_json::json!({
+            "patch_index": 1,
+            "patches": [{
+                "index": 1,
+                "subject": "Single patch",
+                "commit_id": "sha1"
+            }]
+        });
+        assert_eq!(
+            build_follow_up_series_context(None, &patchset, "sha1"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_build_follow_up_series_context_none_when_last_patch() {
+        let patchset = serde_json::json!({
+            "patch_index": 2,
+            "patches": [
+                { "index": 1, "subject": "Patch 1", "commit_id": "sha1" },
+                { "index": 2, "subject": "Patch 2", "commit_id": "sha2" }
+            ]
+        });
+        assert_eq!(
+            build_follow_up_series_context(Some("base..sha2"), &patchset, "sha2"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_build_follow_up_series_context_intermediate_patch() {
+        let patchset = serde_json::json!({
+            "patch_index": 1,
+            "patches": [
+                { "index": 1, "subject": "net: add foo API", "commit_id": "sha1" },
+                { "index": 2, "subject": "net: add caller for foo", "commit_id": "sha2" },
+                { "index": 3, "subject": "net: add docs for foo", "commit_id": "sha3" }
+            ]
+        });
+        let ctx = build_follow_up_series_context(Some("base..sha3"), &patchset, "sha1");
+        assert!(ctx.is_some());
+        let content = ctx.unwrap();
+        assert!(content.contains("Current Patch Under Review: [Patch 1 of 3] - net: add foo API"));
+        assert!(content.contains("Series End Commit (Final State): sha3"));
+        assert!(content.contains("- [Patch 2 of 3] (commit sha2): net: add caller for foo"));
+        assert!(content.contains("- [Patch 3 of 3] (commit sha3): net: add docs for foo"));
+        assert!(!content.contains("- [Patch 1 of 3]"));
+        assert!(content.contains("SERIES VERIFICATION DIRECTIVE:"));
+        assert!(content.contains("base_revision=\"sha1\""));
+        assert!(content.contains("target_revision=\"sha3\""));
+        assert!(content.contains("git_read_files with revision=\"sha3\""));
+    }
+
     struct MockProviderAlwaysFails;
     #[async_trait::async_trait]
     impl crate::ai::AiProvider for MockProviderAlwaysFails {
@@ -2202,6 +2323,7 @@ mod tests {
             max_interactions: 3,
             temperature: 0.0,
             series_range: None,
+            baseline_sha: None,
             custom_prompt: None,
             stages: None,
         };
@@ -2549,6 +2671,7 @@ mod tests {
             max_interactions: 3,
             temperature: 0.0,
             series_range: None,
+            baseline_sha: None,
             custom_prompt: None,
             stages: Some(vec![1]),
         };
@@ -2564,5 +2687,43 @@ mod tests {
         if let Err(e) = &res {
             panic!("Expected run to succeed, got error: {:?}", e);
         }
+    }
+
+    #[tokio::test]
+    async fn test_baseline_sha_in_worker_context_when_single_patch() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("prompts");
+        std::fs::create_dir_all(&prompts_dir).unwrap();
+
+        let provider = std::sync::Arc::new(MockBlockedProvider {
+            attempts: AtomicUsize::new(0),
+        });
+        let tools = crate::toolbox::ToolBox::new(temp_dir.path().to_path_buf(), None);
+        let prompts = PromptRegistry::new(prompts_dir);
+        let config = WorkerConfig {
+            max_input_tokens: 10000,
+            max_interactions: 3,
+            temperature: 0.0,
+            series_range: None,
+            baseline_sha: Some("explicit_baseline_sha".to_string()),
+            custom_prompt: None,
+            stages: Some(vec![1]),
+        };
+        let mut worker = Worker::new(provider, std::sync::Arc::new(tools), prompts, config);
+
+        let patchset = serde_json::json!({
+            "id": 1,
+            "patch_index": 1,
+            "patches": [{"diff": "diff --git a/foo.c b/foo.c\n+int x;", "commit_id": "target_sha"}]
+        });
+
+        let res = worker.run(patchset, None).await;
+        assert!(res.is_ok());
+        let worker_res = res.unwrap();
+        assert!(!worker_res.history.is_empty());
+        // System prompt contains the Active Git Metadata:
+        let sys_content = worker_res.history[0].content.as_deref().unwrap_or_default();
+        assert!(sys_content.contains("Baseline SHA: explicit_baseline_sha"));
+        assert!(sys_content.contains("Target Commit SHA: target_sha"));
     }
 }

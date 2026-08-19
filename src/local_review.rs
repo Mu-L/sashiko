@@ -496,6 +496,7 @@ async fn review_single_patch(
                 temperature: ai.temperature,
                 custom_prompt: options.custom_prompt.clone(),
                 series_range,
+                baseline_sha: Some(baseline_sha.to_string()),
                 stages: options.stages.clone(),
             },
         );
@@ -550,7 +551,8 @@ async fn review_single_patch(
             "id": patchset_id,
             "subject": subject,
             "patches": rich_patches,
-            "patch_index": Some(p.index)
+            "patch_index": Some(p.index),
+            "baseline": baseline_sha
         });
 
         match worker
@@ -780,7 +782,7 @@ async fn run_worker_in_worktree(
         },
     );
 
-    let rich_patches: Vec<Value> = patches_to_review
+    let rich_patches: Vec<Value> = patches
         .iter()
         .map(|p| {
             let date_str = if let Some(ts) = p.date {
@@ -1352,5 +1354,69 @@ mod tests {
             "baseline_sha",
         );
         assert_eq!(range_p2, None);
+    }
+
+    #[test]
+    fn test_rich_patches_and_follow_up_context_with_patch_index_filter() {
+        use crate::worker::build_follow_up_series_context;
+
+        let p1 = PatchInput {
+            index: 1,
+            diff: "diff1".to_string(),
+            subject: Some("Patch 1".to_string()),
+            author: None,
+            date: None,
+            message_id: None,
+            commit_id: Some("sha1".to_string()),
+        };
+        let p2 = PatchInput {
+            index: 2,
+            diff: "diff2".to_string(),
+            subject: Some("Patch 2".to_string()),
+            author: None,
+            date: None,
+            message_id: None,
+            commit_id: Some("sha2".to_string()),
+        };
+        let all_patches = vec![p1.clone(), p2.clone()];
+        let mut patch_shas = HashMap::new();
+        patch_shas.insert(1, "sha1".to_string());
+        patch_shas.insert(2, "sha2".to_string());
+
+        // When reviewing only patch 1 with index filter:
+        let rich_patches: Vec<Value> = all_patches
+            .iter()
+            .map(|p| {
+                json!({
+                    "index": p.index,
+                    "subject": p.subject,
+                    "author": p.author,
+                    "commit_id": patch_shas.get(&p.index).cloned(),
+                })
+            })
+            .collect();
+
+        let patchset_val = json!({
+            "id": 100,
+            "subject": "Series Subject",
+            "patches": rich_patches,
+            "patch_index": Some(1),
+            "baseline": "baseline_sha"
+        });
+
+        let range = calculate_series_range(
+            &all_patches,
+            std::slice::from_ref(&p1),
+            &patch_shas,
+            "baseline_sha",
+        );
+        assert_eq!(range, Some("baseline_sha..sha2".to_string()));
+
+        let context = build_follow_up_series_context(range.as_deref(), &patchset_val, "sha1");
+        assert!(context.is_some());
+        let ctx_str = context.unwrap();
+        assert!(ctx_str.contains("Current Patch Under Review: [Patch 1 of 2] - Patch 1"));
+        assert!(ctx_str.contains("Series End Commit (Final State): sha2"));
+        assert!(ctx_str.contains("- [Patch 2 of 2] (commit sha2): Patch 2"));
     }
 }
