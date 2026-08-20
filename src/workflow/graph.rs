@@ -19,6 +19,9 @@ use serde::de::DeserializeOwned;
 use super::policy::ParallelPolicy;
 use super::stage::{ExecutableStage, Stage};
 
+/// A resolver function that inspects workflow state and constructs dynamic stages.
+pub type StageResolver<S> = Box<dyn Fn(&S) -> Vec<Box<dyn ExecutableStage<S>>> + Send + Sync>;
+
 /// A step in a workflow execution graph.
 pub enum WorkflowStep<S: Send + Sync> {
     /// Execute a single stage to completion.
@@ -33,7 +36,7 @@ pub enum WorkflowStep<S: Send + Sync> {
     /// Run a dynamic planning stage, then resolve and execute stages concurrently.
     DynamicParallel {
         planner: Box<dyn ExecutableStage<S>>,
-        resolver: Box<dyn Fn(&S) -> Vec<Box<dyn ExecutableStage<S>>> + Send + Sync>,
+        resolver: StageResolver<S>,
         policy: ParallelPolicy,
     },
 

@@ -215,9 +215,9 @@ mod tests {
     #[derive(Default, Clone)]
     struct DummyState {
         concerns: Vec<String>,
+        #[allow(dead_code)]
         findings: Vec<String>,
         selected_stages: Vec<u8>,
-        report: String,
     }
 
     #[derive(Deserialize, Debug)]
@@ -232,15 +232,40 @@ mod tests {
 
     struct MockProvider {
         response_json: String,
+        responses: std::sync::Mutex<std::collections::VecDeque<String>>,
         call_count: AtomicUsize,
+    }
+
+    impl MockProvider {
+        fn single(resp: &str) -> Self {
+            Self {
+                response_json: resp.to_string(),
+                responses: std::sync::Mutex::new(std::collections::VecDeque::new()),
+                call_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn queued(resps: Vec<String>) -> Self {
+            Self {
+                response_json: String::new(),
+                responses: std::sync::Mutex::new(resps.into()),
+                call_count: AtomicUsize::new(0),
+            }
+        }
     }
 
     #[async_trait::async_trait]
     impl AiProvider for MockProvider {
         async fn generate_content(&self, _request: AiRequest) -> Result<AiResponse> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
+            let content = {
+                let mut queue = self.responses.lock().unwrap();
+                queue
+                    .pop_front()
+                    .unwrap_or_else(|| self.response_json.clone())
+            };
             Ok(AiResponse {
-                content: Some(self.response_json.clone()),
+                content: Some(content),
                 thought: None,
                 thought_signature: None,
                 tool_calls: None,
@@ -263,10 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_workflow_sequential_and_early_exit() {
-        let provider = Arc::new(MockProvider {
-            response_json: r#"{"items": ["leak in foo"]}"#.to_string(),
-            call_count: AtomicUsize::new(0),
-        });
+        let provider = Arc::new(MockProvider::single(r#"{"items": ["leak in foo"]}"#));
         let tmp = tempfile::tempdir().unwrap();
         let tools = Arc::new(ToolBox::new(tmp.path().to_path_buf(), None));
         let env = WorkflowEnv {
@@ -281,7 +303,7 @@ mod tests {
         let workflow = Workflow::builder("test_flow")
             .stage(
                 Stage::builder("stage_1")
-                    .user_prompt(PromptTemplate::new("Analyze: {{report}}"))
+                    .user_prompt(PromptTemplate::new("Analyze"))
                     .output_format(OutputFormat::json())
                     .reduce(|s: &mut DummyState, out: DummyConcernsOutput| {
                         s.concerns.extend(out.items);
@@ -311,10 +333,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_workflow_dynamic_parallel_planning() {
-        let provider = Arc::new(MockProvider {
-            response_json: r#"{"stages": [4, 5]}"#.to_string(),
-            call_count: AtomicUsize::new(0),
-        });
+        let provider = Arc::new(MockProvider::queued(vec![
+            r#"{"stages": [4, 5]}"#.to_string(),
+            r#"{"items": ["concern_a"]}"#.to_string(),
+            r#"{"items": ["concern_b"]}"#.to_string(),
+        ]));
         let tmp = tempfile::tempdir().unwrap();
         let tools = Arc::new(ToolBox::new(tmp.path().to_path_buf(), None));
         let env = WorkflowEnv {

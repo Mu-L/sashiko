@@ -17,18 +17,27 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+/// Validation function for strongly-typed JSON outputs against current workflow state.
+pub type JsonValidator<S, T> = Box<dyn Fn(&T, &S) -> Result<(), String> + Send + Sync>;
+
+/// Validation function for plaintext outputs against current workflow state.
+pub type TextValidator<S> = Box<dyn Fn(&str, &S) -> Result<(), String> + Send + Sync>;
+
+/// Formatter function for generating retry prompt feedback from raw invalid output.
+pub type FeedbackFormatter = Box<dyn Fn(&str) -> String + Send + Sync>;
+
 /// Defines the expected output format of a stage, its parsing logic, and validation rules.
 pub enum OutputFormat<S, T> {
     /// Strongly-typed JSON output.
     Json {
         schema: Option<Value>,
-        validator: Option<Box<dyn Fn(&T, &S) -> Result<(), String> + Send + Sync>>,
-        feedback_formatter: Option<Box<dyn Fn(&str) -> String + Send + Sync>>,
+        validator: Option<JsonValidator<S, T>>,
+        feedback_formatter: Option<FeedbackFormatter>,
     },
     /// Plaintext output validated by a custom function.
     Text {
-        validator: Box<dyn Fn(&str, &S) -> Result<(), String> + Send + Sync>,
-        feedback_formatter: Box<dyn Fn(&str) -> String + Send + Sync>,
+        validator: TextValidator<S>,
+        feedback_formatter: FeedbackFormatter,
     },
 }
 
@@ -198,8 +207,8 @@ fn find_json_candidates(text: &str) -> Vec<Value> {
         {
             let candidate: String = chars[i..=end].iter().collect();
             let clean_candidate = crate::utils::clean_json_string(&candidate);
-            if let Ok(v) = serde_json::from_str(&clean_candidate)
-                .or_else(|_| serde_json::from_str(&candidate))
+            if let Ok(v) =
+                serde_json::from_str(&clean_candidate).or_else(|_| serde_json::from_str(&candidate))
             {
                 candidates.push(v);
                 i = end + 1;

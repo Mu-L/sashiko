@@ -69,7 +69,13 @@ impl Default for StagePolicy {
             max_validation_attempts: 3,
             temperature: 0.0,
             tools: ToolScope::All,
-            recitation_policy: RecitationPolicy::Fail,
+            recitation_policy: RecitationPolicy::RetryWithReminder(
+                "IMPORTANT: Your previous response was blocked by a recitation filter. \
+                 To bypass this filter, please rephrase your response: do NOT quote large blocks \
+                 of code verbatim. Describe code logic in your own words, summarize findings, or \
+                 quote only short snippets (1-2 lines). Re-emit your JSON output now."
+                    .to_string(),
+            ),
         }
     }
 }

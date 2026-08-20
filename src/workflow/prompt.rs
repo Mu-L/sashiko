@@ -18,23 +18,29 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
+/// Dynamic variable extractor mapping workflow state `S` to a string value.
+pub type PromptVarExtractor<S> = Box<dyn Fn(&S) -> String + Send + Sync>;
+
+/// Dynamic file inclusion resolver mapping workflow state `S` to a list of paths.
+pub type DynamicInclusionResolver<S> = Box<dyn Fn(&S) -> Vec<PathBuf> + Send + Sync>;
+
+/// Directory filter function.
+pub type DirFilter = Box<dyn Fn(&str) -> bool + Send + Sync>;
+
 /// A directive to include external files or directories into a prompt.
 pub enum InclusionDirective {
     /// Include a single file relative to the prompt base directory.
     File(PathBuf),
     /// Include all matching markdown files from a directory.
-    Directory {
-        path: PathBuf,
-        filter: Box<dyn Fn(&str) -> bool + Send + Sync>,
-    },
+    Directory { path: PathBuf, filter: DirFilter },
 }
 
 /// A declarative prompt template parameterized over workflow state `S`.
 pub struct PromptTemplate<S> {
     raw_template: String,
-    vars: Vec<(String, Box<dyn Fn(&S) -> String + Send + Sync>)>,
+    vars: Vec<(String, PromptVarExtractor<S>)>,
     static_inclusions: Vec<InclusionDirective>,
-    dynamic_inclusions: Vec<Box<dyn Fn(&S) -> Vec<PathBuf> + Send + Sync>>,
+    dynamic_inclusions: Vec<DynamicInclusionResolver<S>>,
 }
 
 impl<S> PromptTemplate<S> {
@@ -161,8 +167,7 @@ impl<S> PromptTemplate<S> {
         for dyn_inc in &self.dynamic_inclusions {
             let files = dyn_inc(state);
             if !files.is_empty() {
-                let tags: Vec<String> =
-                    files.iter().map(|p| format!("@{}", p.display())).collect();
+                let tags: Vec<String> = files.iter().map(|p| format!("@{}", p.display())).collect();
                 buffer.push_str(&format!("\n\n{}\n", tags.join(", ")));
             }
         }

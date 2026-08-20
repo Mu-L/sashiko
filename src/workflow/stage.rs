@@ -79,6 +79,12 @@ pub trait ExecutableStage<S: Send + Sync>: Send + Sync {
     }
 }
 
+/// Reducer function applying stage output `T` to mutable workflow state `S`.
+pub type StageReducer<S, T> = Arc<dyn Fn(&mut S, T) + Send + Sync>;
+
+/// Conditional predicate determining whether a stage should be evaluated.
+pub type StageCondition<S> = Arc<dyn Fn(&S) -> bool + Send + Sync>;
+
 /// A declarative workflow stage with typed output `T` and state reduction.
 pub struct Stage<S, T> {
     pub name: &'static str,
@@ -86,7 +92,8 @@ pub struct Stage<S, T> {
     pub user_prompt: PromptTemplate<S>,
     pub output_format: OutputFormat<S, T>,
     pub policy: StagePolicy,
-    pub reducer: Arc<dyn Fn(&mut S, T) + Send + Sync>,
+    pub reducer: StageReducer<S, T>,
+    pub skip_if: Option<StageCondition<S>>,
 }
 
 impl<S: 'static, T: 'static> Stage<S, T> {
@@ -103,7 +110,8 @@ pub struct StageBuilder<S, T> {
     user_prompt: Option<PromptTemplate<S>>,
     output_format: Option<OutputFormat<S, T>>,
     policy: StagePolicy,
-    reducer: Option<Arc<dyn Fn(&mut S, T) + Send + Sync>>,
+    reducer: Option<StageReducer<S, T>>,
+    skip_if: Option<StageCondition<S>>,
 }
 
 impl<S: 'static, T: 'static> StageBuilder<S, T> {
@@ -115,6 +123,7 @@ impl<S: 'static, T: 'static> StageBuilder<S, T> {
             output_format: None,
             policy: StagePolicy::default(),
             reducer: None,
+            skip_if: None,
         }
     }
 
@@ -175,6 +184,15 @@ impl<S: 'static, T: 'static> StageBuilder<S, T> {
         self
     }
 
+    /// Skips execution of this stage if the predicate returns true.
+    pub fn skip_if<F>(mut self, predicate: F) -> Self
+    where
+        F: Fn(&S) -> bool + Send + Sync + 'static,
+    {
+        self.skip_if = Some(Arc::new(predicate));
+        self
+    }
+
     /// Builds the stage.
     pub fn build(self) -> Stage<S, T> {
         let user_prompt = self
@@ -183,9 +201,7 @@ impl<S: 'static, T: 'static> StageBuilder<S, T> {
         let output_format = self
             .output_format
             .expect("output_format must be configured for stage");
-        let reducer = self
-            .reducer
-            .unwrap_or_else(|| Arc::new(|_, _| {}));
+        let reducer = self.reducer.unwrap_or_else(|| Arc::new(|_, _| {}));
 
         Stage {
             name: self.name,
@@ -194,6 +210,7 @@ impl<S: 'static, T: 'static> StageBuilder<S, T> {
             output_format,
             policy: self.policy,
             reducer,
+            skip_if: self.skip_if,
         }
     }
 }
@@ -312,6 +329,20 @@ impl<S: Send + Sync + 'static, T: DeserializeOwned + Send + 'static> ExecutableS
         state: &S,
         event_cb: Option<&(dyn Fn(WorkflowEvent) + Send + Sync)>,
     ) -> Result<(StageOutcome, StateMutation<S>)> {
+        if let Some(ref predicate) = self.skip_if
+            && predicate(state)
+        {
+            return Ok((
+                StageOutcome {
+                    history: Vec::new(),
+                    tokens_in: 0,
+                    tokens_out: 0,
+                    tokens_cached: 0,
+                },
+                Box::new(|_| {}),
+            ));
+        }
+
         if let Some(cb) = event_cb {
             cb(WorkflowEvent::StageStarted {
                 stage_name: self.name,
@@ -324,7 +355,10 @@ impl<S: Send + Sync + 'static, T: DeserializeOwned + Send + 'static> ExecutableS
             String::new()
         };
 
-        let user_prompt = self.user_prompt.render_for_model(state, env.base_dir).await?;
+        let user_prompt = self
+            .user_prompt
+            .render_for_model(state, env.base_dir)
+            .await?;
         let log_user_prompt = self.user_prompt.render_for_log(state);
 
         let stage_name = self.name;
