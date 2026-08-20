@@ -14,9 +14,12 @@ Currently, review stages and orchestration logic are implemented imperatively ac
 ### 1.1 Design Goals
 - **Declarative & Self-Documenting**: Define stages, prompts, expected schemas, retry conditions, and transitions using an expressive, type-safe fluent Rust API.
 - **Unified Prompt & Logging Engine**: Write a single prompt template containing `@include("path/to/file.md")` directives and `{{variable}}` placeholders. When sending to the LLM, directives are expanded inline; when logging to history/database, directives remain concise tokens (e.g. `@subsystem/locking.md`), eliminating manual dual-prompt maintenance.
+- **Dynamic File Inclusions from State**: Support dynamically injecting guidance files selected at runtime (e.g. Phase 0 pre-screening).
 - **Strongly-Typed Output Validation**: Automate JSON Schema generation for LLMs, type deserialization, custom validation predicates, and automatic feedback generation on format rejections.
-- **Resilient Error & Fallback Policies**: Declaratively specify retry limits, transient error handling, and provider error policies (e.g., recitation fallback to free-form mode).
+- **Fine-Grained Tool Scoping**: Explicitly declare tool availability per stage (`None`, `All`, `Selected(...)`) to conserve prompt tokens and prevent hallucinated tool calls in synthesis stages.
+- **Resilient Error & Fallback Policies**: Declaratively specify retry limits, transient error handling, parallel execution policies (`FailFast` vs `BestEffort`), and provider error policies (e.g., recitation fallback to free-form mode).
 - **Expressive Workflow Graph (DAG)**: Support sequential steps, static/dynamic fan-out (parallel stage execution), conditional branching, early exits, and typed state reducers.
+- **Built-in Lifecycle Telemetry**: Automatically emit standardized progress and turn events without manual callback bookkeeping in stage implementations.
 - **Unit Testability**: Enable unit testing of individual stages, prompt rendering, validation logic, and DAG routing in isolation without external infrastructure.
 
 ---
@@ -41,6 +44,7 @@ graph TD
         PT[PromptTemplate]
         INC[Inclusion Engine: @include]
         VAR[Variable Substitutor: {{var}}]
+        DYN[Dynamic State Inclusions]
         EXP[Model Renderer: Inline File Expansion]
         LOG[Log Renderer: Preserves @directives]
     end
@@ -55,16 +59,17 @@ graph TD
         WE[WorkflowEngine]
         SR[SessionRunner / LlmSession]
         ST[WorkflowState & Reducers]
+        EV[WorkflowEvent Telemetry]
     end
 
     WF --> S1 --> S2 --> SP --> EE1
     EE1 -- No Concerns --> EXIT[Terminal Result]
     EE1 -- Has Concerns --> S8 --> S9 --> S10 --> S11
     S1 & S2 & SP & S8 & S9 & S10 & S11 --> PT
-    PT --> INC & VAR
-    INC --> EXP & LOG
+    PT --> INC & VAR & DYN
+    INC & DYN --> EXP & LOG
     S1 & S2 & SP & S8 & S9 & S10 & S11 --> OF --> SCH & VAL
-    WE --> ST
+    WE --> ST & EV
     WE --> SR
 ```
 
@@ -76,18 +81,20 @@ graph TD
 
 A prompt template is defined as a single string containing:
 - **Variable Placeholders**: `{{variable_name}}` extracted dynamically from the workflow state.
-- **File Inclusion Directives**: `@include("path/to/file.md")` or `@include_dir("dir/", filter_fn)`.
+- **Static File Inclusion Directives**: `@include("path/to/file.md")` or `@include_dir("dir/", filter_fn)`.
+- **Dynamic File Inclusions**: Inclusions determined at runtime from state fields (e.g. `state.selected_guides` chosen by Phase 0).
 
 #### The Single-Template Logging Simplification
 Instead of creating and maintaining separate `content` and `clean` strings:
-- **`render_for_model`**: Substitutes `{{vars}}` and expands all `@include("...")` directives by reading the underlying file contents into the prompt.
+- **`render_for_model`**: Substitutes `{{vars}}` and expands all static and dynamic `@include("...")` directives by reading the underlying file contents into the prompt.
 - **`render_for_log`**: Substitutes `{{vars}}` but leaves `@include("path/to/file.md")` as a compact reference.
 
 ```rust
 pub struct PromptTemplate<S> {
     raw_template: String,
     vars: HashMap<String, Box<dyn Fn(&S) -> String + Send + Sync>>,
-    inclusions: Vec<InclusionDirective>,
+    static_inclusions: Vec<InclusionDirective>,
+    dynamic_inclusions: Vec<Box<dyn Fn(&S) -> Vec<PathBuf> + Send + Sync>>,
 }
 
 pub enum InclusionDirective {
@@ -103,7 +110,8 @@ impl<S> PromptTemplate<S> {
         Self {
             raw_template: template.into(),
             vars: HashMap::new(),
-            inclusions: Vec::new(),
+            static_inclusions: Vec::new(),
+            dynamic_inclusions: Vec::new(),
         }
     }
 
@@ -116,9 +124,9 @@ impl<S> PromptTemplate<S> {
         self
     }
 
-    /// Add a file inclusion directive.
+    /// Add a static file inclusion directive.
     pub fn include_file(mut self, path: impl Into<PathBuf>) -> Self {
-        self.inclusions.push(InclusionDirective::File(path.into()));
+        self.static_inclusions.push(InclusionDirective::File(path.into()));
         self
     }
 
@@ -127,17 +135,27 @@ impl<S> PromptTemplate<S> {
     where
         F: Fn(&str) -> bool + Send + Sync + 'static,
     {
-        self.inclusions.push(InclusionDirective::Directory {
+        self.static_inclusions.push(InclusionDirective::Directory {
             path: dir.into(),
             filter: Box::new(filter),
         });
         self
     }
 
+    /// Add dynamic file inclusions resolved from workflow state (e.g. Phase 0 guides).
+    pub fn include_files_from_state<F>(mut self, resolver: F) -> Self
+    where
+        F: Fn(&S) -> Vec<PathBuf> + Send + Sync + 'static,
+    {
+        self.dynamic_inclusions.push(Box::new(resolver));
+        self
+    }
+
     /// Renders the expanded prompt for sending to the LLM.
     pub async fn render_for_model(&self, state: &S, registry: &PromptRegistry) -> Result<String> {
         let mut buffer = self.substitute_vars(state);
-        for inclusion in &self.inclusions {
+        // Static inclusions
+        for inclusion in &self.static_inclusions {
             match inclusion {
                 InclusionDirective::File(path) => {
                     let content = registry.read_file(path).await?;
@@ -151,13 +169,21 @@ impl<S> PromptTemplate<S> {
                 }
             }
         }
+        // Dynamic inclusions from state
+        for dyn_inc in &self.dynamic_inclusions {
+            for path in dyn_inc(state) {
+                if let Ok(content) = registry.read_file(&path).await {
+                    buffer.push_str(&format!("\n\n# {}\n{}\n", path.display(), content));
+                }
+            }
+        }
         Ok(buffer)
     }
 
     /// Renders the compact prompt for storage in logs/database.
     pub fn render_for_log(&self, state: &S) -> String {
         let mut buffer = self.substitute_vars(state);
-        for inclusion in &self.inclusions {
+        for inclusion in &self.static_inclusions {
             match inclusion {
                 InclusionDirective::File(path) => {
                     buffer.push_str(&format!("\n\n@{}\n", path.display()));
@@ -165,6 +191,13 @@ impl<S> PromptTemplate<S> {
                 InclusionDirective::Directory { path, .. } => {
                     buffer.push_str(&format!("\n\n@{}/\n", path.display()));
                 }
+            }
+        }
+        for dyn_inc in &self.dynamic_inclusions {
+            let files = dyn_inc(state);
+            if !files.is_empty() {
+                let tags: Vec<String> = files.iter().map(|p| format!("@{}", p.display())).collect();
+                buffer.push_str(&format!("\n\n{}\n", tags.join(", ")));
             }
         }
         buffer
@@ -235,12 +268,30 @@ where
 ### 3.3 Stage Policy & Resilient Error Handling (`StagePolicy`)
 
 ```rust
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolScope {
+    /// No tools provided to the LLM (for pure reasoning/synthesis stages).
+    None,
+    /// All tools in the active ToolBox are enabled.
+    All,
+    /// Only specific tool names are provided.
+    Selected(Vec<String>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParallelPolicy {
+    /// If any parallel stage fails, abort the entire batch immediately.
+    FailFast,
+    /// Continue running remaining stages, logging warnings for failed ones.
+    BestEffort,
+}
+
 #[derive(Clone)]
 pub struct StagePolicy {
     pub max_turns: usize,
     pub max_validation_attempts: usize,
     pub temperature: f32,
-    pub tools_enabled: bool,
+    pub tools: ToolScope,
     pub recitation_policy: RecitationPolicy,
 }
 
@@ -250,7 +301,7 @@ impl Default for StagePolicy {
             max_turns: 15,
             max_validation_attempts: 3,
             temperature: 0.0,
-            tools_enabled: true,
+            tools: ToolScope::All,
             recitation_policy: RecitationPolicy::Fail,
         }
     }
@@ -269,11 +320,22 @@ pub enum RecitationPolicy {
 
 ---
 
-### 3.4 Declarative Stage Node (`Stage<S, T>`)
+### 3.4 Type-Erased Executable Stage (`ExecutableStage<S>`)
 
-A `Stage` bundles identity, prompts, tools, output format, policies, and a state reducer:
+To allow a workflow to contain stages returning different output types `T` within a single homogeneous graph, we introduce the `ExecutableStage<S>` trait:
 
 ```rust
+#[async_trait::async_trait]
+pub trait ExecutableStage<S>: Send + Sync {
+    fn name(&self) -> &'static str;
+    async fn execute(
+        &self,
+        env: &WorkflowEnv<'_>,
+        state: &mut S,
+        event_cb: Option<&(dyn Fn(WorkflowEvent) + Send + Sync)>,
+    ) -> Result<StageMetrics>;
+}
+
 pub struct Stage<S, T> {
     pub name: &'static str,
     pub system_prompt: Option<PromptTemplate<S>>,
@@ -288,13 +350,32 @@ impl<S: 'static, T: 'static> Stage<S, T> {
         StageBuilder::new(name)
     }
 }
+
+#[async_trait::async_trait]
+impl<S: Send + Sync + 'static, T: serde::de::DeserializeOwned + Send + 'static> ExecutableStage<S> for Stage<S, T> {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    async fn execute(
+        &self,
+        env: &WorkflowEnv<'_>,
+        state: &mut S,
+        event_cb: Option<&(dyn Fn(WorkflowEvent) + Send + Sync)>,
+    ) -> Result<StageMetrics> {
+        // 1. Render system and user prompts using self.system_prompt & self.user_prompt
+        // 2. Build LlmSession bridging output_format, policy, and tools
+        // 3. Execute via SessionRunner
+        // 4. Invoke (self.reducer)(state, parsed_output)
+        // 5. Return token usage & execution metrics
+        todo!()
+    }
+}
 ```
 
 ---
 
 ### 3.5 Workflow Graph & Control Flow (`Workflow<S>`)
-
-A `Workflow<S>` is an orchestrator that operates over a typed state `S`:
 
 ```rust
 pub enum WorkflowStep<S> {
@@ -302,12 +383,16 @@ pub enum WorkflowStep<S> {
     Stage(Box<dyn ExecutableStage<S>>),
 
     /// Static Fan-Out: Run multiple stages concurrently, join results, and fold.
-    Parallel(Vec<Box<dyn ExecutableStage<S>>>),
+    Parallel {
+        stages: Vec<Box<dyn ExecutableStage<S>>>,
+        policy: ParallelPolicy,
+    },
 
     /// Dynamic Fan-Out: Run a planning stage, then resolve and run stages concurrently.
     DynamicParallel {
         planner: Box<dyn ExecutableStage<S>>,
         resolver: Box<dyn Fn(&S) -> Vec<Box<dyn ExecutableStage<S>>> + Send + Sync>,
+        policy: ParallelPolicy,
     },
 
     /// Conditional Branching.
@@ -332,15 +417,21 @@ pub struct Workflow<S> {
 
 ---
 
-### 3.6 Execution Runtime (`WorkflowEngine`)
+### 3.6 Automated Telemetry & Lifecycle Events (`WorkflowEvent`)
 
-The `WorkflowEngine` executes a `Workflow<S>` against an `AiProvider`, `ToolBox`, and `PromptRegistry`:
+The workflow engine automatically emits structured events across all steps:
 
-1. **Step Evaluation**: Steps are executed sequentially.
-2. **Parallel Fan-Out**: Concurrent stages are launched via `futures::future::try_join_all`.
-3. **Session Integration**: Each stage is bridged to `SessionRunner` using a dynamically generated `LlmSession`.
-4. **Telemetry & Progress**: Emits `WorkerProgressEvent` callbacks for CLI/UI feedback.
-5. **Token Accounting**: Aggregates `prompt_tokens`, `completion_tokens`, and `cached_tokens` across all executed stages.
+```rust
+#[derive(Debug, Clone)]
+pub enum WorkflowEvent {
+    WorkflowStarted { name: &'static str },
+    StageStarted { stage_name: &'static str },
+    StageTurn { stage_name: &'static str, turn: usize, max_turns: usize },
+    StageFinished { stage_name: &'static str, tokens_in: u32, tokens_out: u32 },
+    EarlyExitTriggered { reason: &'static str },
+    WorkflowFinished { name: &'static str, total_tokens: u32 },
+}
+```
 
 ---
 
@@ -366,6 +457,7 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
                     .with_var("subsystem_index", |s| s.subsystem_index.clone())
                     .with_var("target_diff", |s| s.target_diff.clone())
                 )
+                .policy(StagePolicy { tools: ToolScope::None, ..Default::default() })
                 .output_format(OutputFormat::json::<PrescreenOutput>())
                 .reduce(|state, out| {
                     state.selected_guides = out.selected_prompts;
@@ -376,7 +468,7 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
         .dynamic_parallel(
             // Dynamic Planner
             Stage::builder("planning_phase")
-                .system_prompt(PromptTemplate::new("You are a senior Linux kernel maintainer."))
+                .system_prompt(system_prompt_with_log())
                 .user_prompt(
                     PromptTemplate::new(
                         "Analyze the provided patch and determine which stages are relevant (4-7):\n\
@@ -384,6 +476,7 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
                     )
                     .with_var("target_diff", |s| s.target_diff.clone())
                 )
+                .policy(StagePolicy { tools: ToolScope::None, ..Default::default() })
                 .output_format(OutputFormat::json::<PlanningOutput>())
                 .reduce(|state, out| {
                     state.planned_stages = out.relevant_stages;
@@ -405,7 +498,8 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
                     }
                 }
                 stages
-            }
+            },
+            ParallelPolicy::FailFast,
         )
 
         // Early Exit 1: If no concerns were raised in analysis stages 1-7
@@ -417,7 +511,7 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
         // Stage 8: Deduplication & Consolidation
         .stage(
             Stage::builder("stage_8_deduplication")
-                .system_prompt(shared_system_prompt())
+                .system_prompt(system_prompt_with_log())
                 .user_prompt(
                     PromptTemplate::new(
                         "# Stage 8. Deduplication and Consolidation\n\n\
@@ -427,6 +521,7 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
                     .with_var("concerns_json", |s| s.serialize_concerns())
                     .with_var("dismissed_json", |s| s.serialize_dismissed_concerns())
                 )
+                .policy(StagePolicy { tools: ToolScope::None, ..Default::default() })
                 .output_format(OutputFormat::json::<DeduplicationOutput>())
                 .reduce(Reducer::replace_concerns())
         )
@@ -440,7 +535,7 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
         // Stage 9: Conflict Resolution
         .stage(
             Stage::builder("stage_9_conflict_resolution")
-                .system_prompt(shared_system_prompt())
+                .system_prompt(system_prompt_with_log())
                 .user_prompt(
                     PromptTemplate::new(
                         "# Stage 9. Concern / Dismissed Concern Conflict Resolution\n\n\
@@ -450,6 +545,7 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
                     .with_var("concerns_json", |s| s.serialize_concerns())
                     .with_var("dismissed_json", |s| s.serialize_dismissed_concerns())
                 )
+                .policy(StagePolicy { tools: ToolScope::None, ..Default::default() })
                 .output_format(OutputFormat::json::<ConflictResolutionOutput>())
                 .reduce(Reducer::replace_concerns())
         )
@@ -457,14 +553,16 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
         // Stage 10: Verification and Severity Estimation
         .stage(
             Stage::builder("stage_10_verification")
-                .system_prompt(shared_system_prompt())
+                .system_prompt(system_prompt_with_log())
                 .user_prompt(
                     PromptTemplate::new(
                         "# Stage 10. Verification and Severity Estimation\n\n\
+                         {{series_context}}\
                          Validate each concern and assign severity:\n{{concerns_json}}"
                     )
                     .include_file("false-positive-guide.md")
                     .include_file("severity.md")
+                    .with_var("series_context", |s| s.series_context_string())
                     .with_var("concerns_json", |s| s.serialize_concerns())
                 )
                 .output_format(OutputFormat::json::<VerificationOutput>())
@@ -480,7 +578,7 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
         // Stage 11: LKML-Friendly Inline Report Generation
         .stage(
             Stage::builder("stage_11_report_generation")
-                .system_prompt(shared_system_prompt())
+                .system_prompt(system_prompt_with_log())
                 .user_prompt(
                     PromptTemplate::new(
                         "# Stage 11. LKML Report Generation\n\n\
@@ -489,16 +587,17 @@ pub fn build_kernel_review_workflow() -> Workflow<ReviewState> {
                     .include_file("inline-template.md")
                     .with_var("findings_json", |s| s.serialize_findings())
                 )
-                .output_format(OutputFormat::text_with_validator(
-                    validate_lkml_inline_format,
-                    format_lkml_feedback,
-                ))
                 .policy(StagePolicy {
+                    tools: ToolScope::None,
                     recitation_policy: RecitationPolicy::FallbackToFreeForm {
                         reminder: "CRITICAL: Recitation filter triggered. Do not quote patch code; write a free-form summary.",
                     },
                     ..Default::default()
                 })
+                .output_format(OutputFormat::text_with_validator(
+                    validate_lkml_inline_format,
+                    format_lkml_feedback,
+                ))
                 .reduce(Reducer::set_inline_review())
         )
         .build()
@@ -539,6 +638,7 @@ pub fn build_cherry_pick_workflow() -> Workflow<CherryPickState> {
                     )
                     .with_var("concerns_json", |s| s.serialize_concerns())
                 )
+                .policy(StagePolicy { tools: ToolScope::None, ..Default::default() })
                 .output_format(OutputFormat::json::<CherryPickVerdictOutput>())
                 .reduce(|state, out| {
                     state.verdict = out.verdict;
@@ -554,13 +654,13 @@ pub fn build_cherry_pick_workflow() -> Workflow<CherryPickState> {
 ## 6. Testing & Verification Plan
 
 1. **Prompt Template Unit Tests**:
-   - Verify `render_for_model` correctly expands `@include("file.md")` into full file content and interpolates `{{vars}}`.
+   - Verify `render_for_model` correctly expands static and dynamic `@include("file.md")` directives into full file content and interpolates `{{vars}}`.
    - Verify `render_for_log` leaves `@include("file.md")` intact as an unexpanded directive token while interpolating `{{vars}}`.
 2. **Schema & Validation Unit Tests**:
    - Verify that `OutputFormat::json::<T>()` correctly derives JSON Schema and rejects invalid structures with actionable feedback messages.
 3. **Workflow Control Flow Tests**:
    - Test early exit conditions using mock states (e.g. confirming stages 8–11 are skipped when no concerns exist).
-   - Test parallel stage fan-out and deterministic output aggregation.
+   - Test parallel stage fan-out and deterministic output aggregation under `FailFast` and `BestEffort` policies.
 4. **Integration & Regression Testing**:
    - Run `make check-pr` and `make integration-test`.
    - Execute benchmark evaluations (`cargo run --bin benchmark -- --file benchmarks/benchmark_small.json`) to guarantee 100% behavioral parity with existing review results.
