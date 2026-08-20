@@ -889,7 +889,10 @@ async fn run_worker_in_worktree(
             if !combined_inline.is_empty() {
                 combined_inline.push_str("\n\n");
             }
-            combined_inline.push_str(&format!("--- Patch [{}]: {} ---\n", p_idx, patch_subject));
+            if patches_to_review.len() > 1 {
+                combined_inline
+                    .push_str(&format!("--- Patch [{}]: {} ---\n", p_idx, patch_subject));
+            }
             combined_inline.push_str(inline.trim());
         }
 
@@ -1418,5 +1421,111 @@ mod tests {
         assert!(ctx_str.contains("Current Patch Under Review: [Patch 1 of 2] - Patch 1"));
         assert!(ctx_str.contains("Series End Commit (Final State): sha2"));
         assert!(ctx_str.contains("- [Patch 2 of 2] (commit sha2): Patch 2"));
+    }
+
+    #[test]
+    fn test_inline_review_aggregation_single_and_multi_patch() {
+        let single_patch = [PatchInput {
+            index: 1,
+            diff: "diff1".to_string(),
+            subject: Some("[PATCH 1/1] test single".to_string()),
+            author: None,
+            date: None,
+            message_id: None,
+            commit_id: None,
+        }];
+        let single_res = [json!({
+            "patch_index": 1,
+            "inline_review": "> +int x;\n+Use unsigned int instead.",
+        })];
+
+        let mut combined_single = String::new();
+        for res in &single_res {
+            let p_idx = res["patch_index"].as_i64().unwrap_or(0);
+            let patch_subject = single_patch
+                .iter()
+                .find(|p| p.index == p_idx)
+                .and_then(|p| p.subject.as_ref())
+                .cloned()
+                .unwrap_or_default();
+            if let Some(inline) = res["inline_review"].as_str()
+                && !inline.trim().is_empty()
+                && inline.trim() != "No issues found."
+            {
+                if !combined_single.is_empty() {
+                    combined_single.push_str("\n\n");
+                }
+                if single_patch.len() > 1 {
+                    combined_single
+                        .push_str(&format!("--- Patch [{}]: {} ---\n", p_idx, patch_subject));
+                }
+                combined_single.push_str(inline.trim());
+            }
+        }
+        assert_eq!(combined_single, "> +int x;\n+Use unsigned int instead.");
+        assert!(!combined_single.contains("--- Patch [1]:"));
+
+        let multi_patches = [
+            PatchInput {
+                index: 1,
+                diff: "diff1".to_string(),
+                subject: Some("[PATCH 1/2] test first".to_string()),
+                author: None,
+                date: None,
+                message_id: None,
+                commit_id: None,
+            },
+            PatchInput {
+                index: 2,
+                diff: "diff2".to_string(),
+                subject: Some("[PATCH 2/2] test second".to_string()),
+                author: None,
+                date: None,
+                message_id: None,
+                commit_id: None,
+            },
+        ];
+        let multi_res = [
+            json!({
+                "patch_index": 1,
+                "inline_review": "Comment on patch 1",
+            }),
+            json!({
+                "patch_index": 2,
+                "inline_review": "Comment on patch 2",
+            }),
+        ];
+
+        let mut combined_multi = String::new();
+        for res in &multi_res {
+            let p_idx = res["patch_index"].as_i64().unwrap_or(0);
+            let patch_subject = multi_patches
+                .iter()
+                .find(|p| p.index == p_idx)
+                .and_then(|p| p.subject.as_ref())
+                .cloned()
+                .unwrap_or_default();
+            if let Some(inline) = res["inline_review"].as_str()
+                && !inline.trim().is_empty()
+                && inline.trim() != "No issues found."
+            {
+                if !combined_multi.is_empty() {
+                    combined_multi.push_str("\n\n");
+                }
+                if multi_patches.len() > 1 {
+                    combined_multi
+                        .push_str(&format!("--- Patch [{}]: {} ---\n", p_idx, patch_subject));
+                }
+                combined_multi.push_str(inline.trim());
+            }
+        }
+        assert!(
+            combined_multi
+                .contains("--- Patch [1]: [PATCH 1/2] test first ---\nComment on patch 1")
+        );
+        assert!(
+            combined_multi
+                .contains("--- Patch [2]: [PATCH 2/2] test second ---\nComment on patch 2")
+        );
     }
 }
