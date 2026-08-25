@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ai::{
-    AiErrorClass, AiMessage, AiProvider, ClassifyAiError,
-};
+use crate::ai::{AiErrorClass, AiMessage, AiProvider, ClassifyAiError};
 use crate::toolbox::ToolBox;
 use anyhow::{Context, Result};
 

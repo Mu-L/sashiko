@@ -287,7 +287,21 @@ impl<'a, S: Send + Sync + 'static, T: DeserializeOwned + Send + 'static> LlmSess
     }
 
     async fn call_tool(&mut self, name: &str, args: Value) -> Result<Value> {
-        self.tools.call(name, args).await
+        let repeated = self
+            .last_tool_call
+            .as_ref()
+            .is_some_and(|last| last.0 == name && last.1 == args);
+        if repeated {
+            tracing::warn!("Blocked duplicate tool call: {} with args {:?}", name, args);
+            return Ok(json!({
+                "error": "Duplicate tool call blocked. Please change parameters or use a different tool."
+            }));
+        }
+        self.last_tool_call = Some((name.to_string(), args.clone()));
+        match self.tools.call(name, args).await {
+            Ok(v) => Ok(v),
+            Err(e) => Ok(json!({ "error": e.to_string() })),
+        }
     }
 
     async fn call_tools(&mut self, calls: Vec<ToolCall>) -> Result<Vec<(String, Value)>> {
