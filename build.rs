@@ -107,6 +107,16 @@ fn track_git_changes() {
     {
         println!("cargo:rerun-if-changed={}", packed.display());
     }
+    if let Some(reflog) = get_git_path("logs/HEAD")
+        && reflog.exists()
+    {
+        println!("cargo:rerun-if-changed={}", reflog.display());
+    }
+    if let Some(reftable) = get_git_path("reftable/tables.list")
+        && reftable.exists()
+    {
+        println!("cargo:rerun-if-changed={}", reftable.display());
+    }
 }
 
 fn get_git_path(arg: &str) -> Option<PathBuf> {
@@ -141,7 +151,21 @@ fn get_git_path(arg: &str) -> Option<PathBuf> {
     };
 
     let target = git_dir.join(arg);
-    if target.exists() { Some(target) } else { None }
+    if target.exists() {
+        return Some(target);
+    }
+
+    // In a git worktree, git_dir has a commondir file pointing to the main repo gitdir
+    if let Ok(commondir_content) = fs::read_to_string(git_dir.join("commondir")) {
+        let common = commondir_content.trim();
+        let common_dir = git_dir.join(common);
+        let common_target = common_dir.join(arg);
+        if common_target.exists() {
+            return Some(common_target);
+        }
+    }
+
+    None
 }
 
 fn collect_files(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) -> io::Result<()> {
