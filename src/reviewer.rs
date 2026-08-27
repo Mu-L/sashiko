@@ -1554,27 +1554,69 @@ async fn run_review_tool(
     provider: Arc<dyn AiProvider>,
     llm_semaphore: Arc<Semaphore>,
 ) -> Result<serde_json::Value> {
-    let mut cmd = if let Some(ref override_bin) = settings.review.review_tool_override {
-        Command::new(override_bin)
-    } else {
-        let exe_path = std::env::current_exe()?;
-        let bin_dir = exe_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."));
-        let review_bin = bin_dir.join("review");
-        if review_bin.exists() {
-            Command::new(review_bin)
-        } else {
-            warn!(
-                "Could not find review binary at {:?}, falling back to cargo run",
-                review_bin
-            );
-            let mut c = Command::new("cargo");
-            c.args(["run", "--bin", "review", "--"]);
-            c
-        }
-    };
+    let cmd = default_worker_command()?;
+    run_review_tool_with_cmd(
+        cmd,
+        patchset_id,
+        input_payload,
+        settings,
+        db,
+        baseline,
+        review_index,
+        review_commit,
+        quota_manager,
+        review_id,
+        worktree_path,
+        provider,
+        llm_semaphore,
+    )
+    .await
+}
 
+fn default_worker_command() -> Result<Command> {
+    let exe_path = std::env::current_exe()?;
+    let bin_dir = exe_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let sashiko_bin = bin_dir.join("sashiko");
+    let sashiko_in_parent = bin_dir.parent().map(|p| p.join("sashiko"));
+    let mut c = if sashiko_bin.exists() {
+        Command::new(sashiko_bin)
+    } else if let Some(ref p) = sashiko_in_parent
+        && p.exists()
+    {
+        Command::new(p)
+    } else if exe_path.file_name().and_then(|f| f.to_str()) == Some("sashiko") {
+        Command::new(&exe_path)
+    } else {
+        warn!(
+            "Could not find sashiko binary at {:?}, falling back to cargo run",
+            sashiko_bin
+        );
+        let mut c = Command::new("cargo");
+        c.args(["run", "--bin", "sashiko", "--"]);
+        c
+    };
+    c.arg("worker");
+    Ok(c)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_review_tool_with_cmd(
+    mut cmd: Command,
+    patchset_id: i64,
+    input_payload: &serde_json::Value,
+    settings: &Settings,
+    db: Arc<Database>,
+    baseline: &str,
+    review_index: Option<i64>,
+    review_commit: Option<String>,
+    quota_manager: Arc<QuotaManager>,
+    review_id: i64,
+    worktree_path: Option<&Path>,
+    provider: Arc<dyn AiProvider>,
+    llm_semaphore: Arc<Semaphore>,
+) -> Result<serde_json::Value> {
     cmd.args([
         "--json",
         "--baseline",
@@ -2621,7 +2663,6 @@ mod tests {
 
         let mut settings = Settings::new()?;
         settings.database.url = ":memory:".to_string();
-        settings.review.review_tool_override = Some(bin_path);
         settings.review.timeout_seconds = 5;
 
         let db = Arc::new(Database::new(&settings.database).await?);
@@ -2657,7 +2698,8 @@ mod tests {
             .create_review(ps_id, Some(p_id), "mock", "mock", None, None)
             .await?;
 
-        run_review_tool(
+        run_review_tool_with_cmd(
+            Command::new(&bin_path),
             ps_id,
             &json!({}),
             &settings,
@@ -2810,7 +2852,6 @@ sleep 30
 
         let mut settings = Settings::new()?;
         settings.database.url = ":memory:".to_string();
-        settings.review.review_tool_override = Some(bin_path);
         settings.review.timeout_seconds = 1;
 
         let db = Arc::new(Database::new(&settings.database).await?);
@@ -2849,7 +2890,8 @@ sleep 30
 
         let completed = tokio::time::timeout(
             std::time::Duration::from_secs(3),
-            run_review_tool(
+            run_review_tool_with_cmd(
+                Command::new(&bin_path),
                 ps_id,
                 &json!({}),
                 &settings,
@@ -2899,16 +2941,9 @@ fi
 
     #[tokio::test]
     async fn test_skip_ignored_files() -> Result<()> {
-        let temp_dir = tempdir()?;
-        let bin_path = temp_dir.path().join("mock_review");
-        std::fs::write(&bin_path, "#!/bin/sh\nexit 0")?;
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&bin_path, std::fs::Permissions::from_mode(0o755))?;
-
         let mut settings = Settings::new()?;
         settings.database.url = ":memory:".to_string();
         settings.review.ignore_files = vec!["ignored.txt".to_string(), "ignore_dir/".to_string()];
-        settings.review.review_tool_override = Some(bin_path);
 
         let db = Arc::new(Database::new(&settings.database).await?);
         db.migrate().await?;
@@ -3140,10 +3175,7 @@ fi
         }
     }
 
-    async fn run_two_request_mock(
-        mut settings: Settings,
-        provider: Arc<dyn AiProvider>,
-    ) -> Result<()> {
+    async fn run_two_request_mock(settings: Settings, provider: Arc<dyn AiProvider>) -> Result<()> {
         let temp_dir = tempdir()?;
         let bin_path = temp_dir.path().join("mock_review");
 
@@ -3159,7 +3191,6 @@ echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
 "#;
         std::fs::write(&bin_path, mock_script)?;
         std::fs::set_permissions(&bin_path, Permissions::from_mode(0o755))?;
-        settings.review.review_tool_override = Some(bin_path.clone());
 
         let db = Arc::new(Database::new(&settings.database).await?);
         db.migrate().await?;
@@ -3194,7 +3225,8 @@ echo '{"patchset_id": 1, "patches": [{"index": 1, "status": "applied"}]}'
             .create_review(ps_id, Some(p_id), "mock", "mock", None, None)
             .await?;
 
-        run_review_tool(
+        run_review_tool_with_cmd(
+            Command::new(&bin_path),
             ps_id,
             &json!({}),
             &settings,

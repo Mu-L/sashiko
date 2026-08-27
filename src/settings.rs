@@ -443,10 +443,6 @@ pub struct ReviewSettings {
     /// Conservative default; set to 0 to disable.
     #[serde(default = "default_max_total_output_tokens")]
     pub max_total_output_tokens: usize,
-    /// Override the review tool binary path. Not read from config; set programmatically
-    /// (e.g. in tests or via environment).
-    #[serde(skip)]
-    pub review_tool_override: Option<std::path::PathBuf>,
     #[serde(skip)]
     pub stages: Option<Vec<u8>>,
 }

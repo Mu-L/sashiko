@@ -217,9 +217,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Determine log level
     // 1. CLI --debug takes precedence (implies "info")
     // 2. Settings log_level
-    // 3. Fallback to "warn" (if settings failed)
+    // 3. Worker command defaults to "info" (worker logs progress on stderr)
+    // 4. Fallback to "warn" (for review command or if settings failed)
     let is_review = matches!(cli.command, Some(Commands::Review { .. }));
-    let log_level = if cli.debug {
+    let is_worker = matches!(cli.command, Some(Commands::Worker { .. }));
+    let log_level = if cli.debug || is_worker {
         "info"
     } else if is_review {
         "warn"
@@ -237,7 +239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Determine formatting features independently
     let plain_logs = std::env::var("SASHIKO_LOG_PLAIN").is_ok();
-    let use_ansi = std::env::var("NO_COLOR").is_err() && std::io::stdout().is_terminal();
+    let use_ansi = std::env::var("NO_COLOR").is_err() && std::io::stderr().is_terminal();
 
     let builder = fmt()
         .with_env_filter(env_filter)
@@ -309,6 +311,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 custom_prompt,
                 stages,
             } => {
+                std::panic::set_hook(Box::new(|info| {
+                    eprintln!("CRITICAL ERROR: Panic detected: {}", info);
+                }));
+
                 let result = run_worker_from_stdin(WorkerOptions {
                     settings_path: None,
                     baseline: baseline.clone(),
@@ -325,15 +331,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     scratch_clone: false,
                     current_tree: false,
                 })
-                .await
-                .unwrap_or_else(|e| {
-                    serde_json::json!({
-                        "patchset_id": 0,
-                        "error": e.to_string()
-                    })
-                });
-                print_worker_json(&result).map_err(Box::<dyn std::error::Error>::from)?;
-                return Ok(());
+                .await;
+
+                match result {
+                    Ok(val) => {
+                        print_worker_json(&val).map_err(Box::<dyn std::error::Error>::from)?;
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        let err_val = serde_json::json!({
+                            "patchset_id": 0,
+                            "error": e.to_string()
+                        });
+                        let _ = print_worker_json(&err_val);
+                        std::process::exit(1);
+                    }
+                }
             }
         }
     }
