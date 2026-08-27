@@ -216,20 +216,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Determine log level
     // 1. CLI --debug takes precedence (implies "info")
-    // 2. Settings log_level
-    // 3. Worker command defaults to "info" (worker logs progress on stderr)
-    // 4. Fallback to "warn" (for review command or if settings failed)
+    // 2. Review command defaults to "warn" (unless --debug)
+    // 3. Settings log_level
+    // 4. Worker command defaults to "info" (worker logs progress on stderr)
+    // 5. Fallback to "warn" (if settings failed)
     let is_review = matches!(cli.command, Some(Commands::Review { .. }));
     let is_worker = matches!(cli.command, Some(Commands::Worker { .. }));
-    let log_level = if cli.debug || is_worker {
+    let log_level = if cli.debug {
         "info"
     } else if is_review {
         "warn"
+    } else if let Ok(s) = &settings_result {
+        &s.log_level
+    } else if is_worker {
+        "info"
     } else {
-        match &settings_result {
-            Ok(s) => &s.log_level,
-            Err(_) => "warn",
-        }
+        "warn"
     };
 
     // Initialize tracing with EnvFilter
