@@ -1728,6 +1728,12 @@ fn find_worker_command() -> Result<(PathBuf, Option<&'static str>)> {
         if candidate.exists() {
             return Ok((candidate, Some("worker")));
         }
+        if let Some(parent) = dir.parent() {
+            let candidate = parent.join("sashiko");
+            if candidate.exists() {
+                return Ok((candidate, Some("worker")));
+            }
+        }
         let candidate = dir.join("sashiko-review");
         if candidate.exists() {
             return Ok((candidate, None));

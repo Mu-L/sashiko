@@ -1578,21 +1578,18 @@ fn default_worker_command() -> Result<Command> {
     let bin_dir = exe_path
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
-    let sashiko_bin = bin_dir.join("sashiko");
-    let sashiko_in_parent = bin_dir.parent().map(|p| p.join("sashiko"));
-    let mut c = if sashiko_bin.exists() {
-        Command::new(sashiko_bin)
-    } else if let Some(ref p) = sashiko_in_parent
-        && p.exists()
+    let is_test_runner = bin_dir.file_name().and_then(|f| f.to_str()) == Some("deps");
+
+    let mut c = if !is_test_runner {
+        Command::new(exe_path)
+    } else if let Some(parent) = bin_dir.parent()
+        && parent.join("sashiko").exists()
     {
-        Command::new(p)
-    } else if exe_path.file_name().and_then(|f| f.to_str()) == Some("sashiko") {
-        Command::new(&exe_path)
+        Command::new(parent.join("sashiko"))
+    } else if bin_dir.join("sashiko").exists() {
+        Command::new(bin_dir.join("sashiko"))
     } else {
-        warn!(
-            "Could not find sashiko binary at {:?}, falling back to cargo run",
-            sashiko_bin
-        );
+        warn!("Running in test runner without compiled sashiko binary, falling back to cargo run");
         let mut c = Command::new("cargo");
         c.args(["run", "--bin", "sashiko", "--"]);
         c
@@ -3677,6 +3674,20 @@ inline review content 3\n\n-- \nSashiko AI review · https://sashiko.dev/#/patch
         assert_eq!(in_reply_to, "msg_id_p2");
         assert_eq!(references_hdr, "msg_id_1 msg_id_p2");
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_default_worker_command() -> Result<()> {
+        let cmd = default_worker_command()?;
+        let program = cmd.as_std().get_program().to_string_lossy().to_string();
+        assert!(program.contains("sashiko") || program == "cargo");
+        let args: Vec<_> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert!(args.contains(&"worker".to_string()));
         Ok(())
     }
 }
