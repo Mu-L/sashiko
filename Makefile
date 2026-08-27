@@ -29,7 +29,7 @@ help:
 
 # Build release binary
 build:
-	@cargo build --release
+	@cargo build --all-features --release
 
 # Auto-format Rust code
 fmt:
