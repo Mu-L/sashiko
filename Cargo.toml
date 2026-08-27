@@ -24,6 +24,27 @@ exclude = [
     "test_*.rs",
 ]
 
+[lib]
+doctest = false
+
+[[bin]]
+name = "sashiko"
+path = "src/main.rs"
+
+[[bin]]
+name = "sashiko-cli"
+path = "src/bin/sashiko-cli.rs"
+
+[[bin]]
+name = "benchmark"
+path = "src/bin/benchmark.rs"
+test = false
+
+[[bin]]
+name = "review"
+path = "src/bin/review.rs"
+test = false
+
 [features]
 default = ["bedrock"]
 bedrock = ["aws-config", "aws-sdk-bedrockruntime", "aws-smithy-types"]
