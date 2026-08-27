@@ -43,7 +43,7 @@ lint:
 
 # Run unit tests
 test:
-	@cargo test --release
+	@cargo test --all-features --release
 
 # Remove build artifacts
 clean:
@@ -67,4 +67,4 @@ sob:
 
 # Run #[ignore]-tagged integration tests (spins up real HTTP servers)
 integration-test:
-	@cargo test --release --test integration_tests -- --ignored
+	@cargo test --all-features --release --test integration_tests -- --ignored
