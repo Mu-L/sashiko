@@ -37,13 +37,13 @@ fmt:
 
 # Run all linters (clippy, fmt --check, yamllint)
 lint:
-	@cargo clippy --all-targets --all-features --release -- -D warnings
+	@cargo clippy --all-targets --all-features -- -D warnings
 	@cargo fmt --all -- --check
 	-@yamllint .
 
 # Run unit tests
 test:
-	@cargo test --all-features --release
+	@cargo test --all-features
 
 # Remove build artifacts
 clean:
@@ -67,4 +67,4 @@ sob:
 
 # Run #[ignore]-tagged integration tests (spins up real HTTP servers)
 integration-test:
-	@cargo test --all-features --release --test integration_tests -- --ignored
+	@cargo test --all-features --test integration_tests -- --ignored
