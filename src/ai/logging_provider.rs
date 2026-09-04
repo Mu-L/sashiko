@@ -19,7 +19,7 @@
 //! worker (`worker::prompts`) drives the same stage loop in both local-CLI and
 //! daemon modes, and every model call funnels through `generate_content`, so
 //! wrapping the provider here logs turns identically for both paths. It is
-//! enabled by the `[ai] log_turns` setting and wired in at `bin/review.rs`.
+//! enabled by the `[ai] log_turns` setting and wired in at `src/local_review.rs`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -66,7 +66,11 @@ impl AiProvider for LoggingProvider {
             } else {
                 let content = last.content.as_deref().unwrap_or("(no text content)");
                 let preview: String = content.chars().take(300).collect();
-                let ellipsis = if content.chars().count() > 300 { "…" } else { "" };
+                let ellipsis = if content.chars().count() > 300 {
+                    "…"
+                } else {
+                    ""
+                };
                 info!("{tag}→ Turn {turn} ({n_msgs} msgs): [{role}] {preview}{ellipsis}");
             }
         }
@@ -76,14 +80,22 @@ impl AiProvider for LoggingProvider {
         // Log the response: text, any tool calls, and token usage.
         if let Some(content) = &response.content {
             let preview: String = content.chars().take(500).collect();
-            let ellipsis = if content.chars().count() > 500 { "…" } else { "" };
+            let ellipsis = if content.chars().count() > 500 {
+                "…"
+            } else {
+                ""
+            };
             info!("{tag}← Turn {turn} text: {preview}{ellipsis}");
         }
         if let Some(tool_calls) = &response.tool_calls {
             for call in tool_calls {
                 let args = call.arguments.to_string();
                 let preview: String = args.chars().take(200).collect();
-                let ellipsis = if args.chars().count() > 200 { "…" } else { "" };
+                let ellipsis = if args.chars().count() > 200 {
+                    "…"
+                } else {
+                    ""
+                };
                 info!(
                     "{tag}← Turn {turn} tool_call: {}({preview}{ellipsis})",
                     call.function_name

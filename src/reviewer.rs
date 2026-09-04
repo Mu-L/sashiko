@@ -134,8 +134,7 @@ impl Reviewer {
         .await
         .expect("Failed to create AI provider");
 
-        let llm_concurrency =
-            crate::ai::concurrency_limited_provider::llm_permits(concurrency);
+        let llm_concurrency = crate::ai::concurrency_limited_provider::llm_permits(concurrency);
 
         Self {
             db,
@@ -1728,13 +1727,14 @@ async fn run_review_tool_with_cmd(
     // than an open-coded loop. A review is bounded by its activity deadline
     // rather than an attempt count, and time spent waiting out a rate limit is
     // credited back so it does not consume that budget.
-    let provider: Arc<dyn AiProvider> = Arc::new(crate::ai::backoff_provider::BackoffProvider::new(
-        provider,
-        quota_manager.clone(),
-        Some(Arc::new(crate::ai::backoff_provider::DeadlineBudget::new(
-            deadline.clone(),
-        ))),
-    ));
+    let provider: Arc<dyn AiProvider> =
+        Arc::new(crate::ai::backoff_provider::BackoffProvider::new(
+            provider,
+            quota_manager.clone(),
+            Some(Arc::new(crate::ai::backoff_provider::DeadlineBudget::new(
+                deadline.clone(),
+            ))),
+        ));
 
     let mut spawned_tasks = Vec::new();
     let interaction_result =

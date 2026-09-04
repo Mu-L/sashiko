@@ -289,8 +289,8 @@ pub async fn run_worker(
                 review.timeout_seconds,
             )
         } else if repo_override.is_some() {
-            let local_settings =
-                Settings::local_review_settings().context("Failed to load local review settings")?;
+            let local_settings = Settings::local_review_settings()
+                .context("Failed to load local review settings")?;
             let review = local_settings.review;
             (
                 local_settings.ai,
@@ -463,6 +463,7 @@ fn decorate_provider(
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn review_single_patch(
     worktree: &GitWorktree,
     ai: &AiSettings,
@@ -476,9 +477,17 @@ async fn review_single_patch(
     baseline_sha: &str,
     llm_semaphore: &Arc<Semaphore>,
     quota: &Arc<crate::ai::quota::QuotaManager>,
-    retry_budget: &Option<Arc<dyn crate::ai::backoff_provider::RetryBudget>>,
+    timeout_seconds: u64,
     progress: Option<&ProgressCallback<'_>>,
 ) -> Result<Value> {
+    let retry_budget: Option<Arc<dyn crate::ai::backoff_provider::RetryBudget>> =
+        (timeout_seconds > 0).then(|| {
+            let deadline = Arc::new(std::sync::Mutex::new(
+                tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_seconds),
+            ));
+            Arc::new(crate::ai::backoff_provider::DeadlineBudget::new(deadline))
+                as Arc<dyn crate::ai::backoff_provider::RetryBudget>
+        });
     let mut last_error = None;
     for attempt in 1..=3 {
         emit(
@@ -499,7 +508,7 @@ async fn review_single_patch(
 
         let provider =
             crate::ai::create_provider_from_ai(ai).context("Failed to create AI provider")?;
-        let provider = decorate_provider(provider, ai, llm_semaphore, quota, retry_budget);
+        let provider = decorate_provider(provider, ai, llm_semaphore, quota, &retry_budget);
         let prompts_tool_path = Some(options.prompts.join("tool.md"));
 
         let mut patch_files = Vec::new();
@@ -873,18 +882,6 @@ async fn run_worker_in_worktree(
     ));
     // Shared so a rate-limit response from one request backs the whole run off.
     let quota = Arc::new(crate::ai::quota::QuotaManager::new());
-    // Bound the run by [review] timeout_seconds, as the daemon does. Time spent
-    // waiting out a rate limit is credited back rather than charged to it.
-    // 0 disables the limit, leaving retries bounded by their attempt ceiling.
-    let retry_budget: Option<Arc<dyn crate::ai::backoff_provider::RetryBudget>> =
-        (timeout_seconds > 0).then(|| {
-            let deadline = Arc::new(std::sync::Mutex::new(
-                tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_seconds),
-            ));
-            Arc::new(crate::ai::backoff_provider::DeadlineBudget::new(deadline))
-                as Arc<dyn crate::ai::backoff_provider::RetryBudget>
-        });
-
     // Execute patch reviews concurrently with a limit
     let futures_stream = futures::stream::iter(patches_to_review.iter().map(|p| {
         let rich_patches = rich_patches.clone();
@@ -894,7 +891,6 @@ async fn run_worker_in_worktree(
         let all_patches = &patches;
         let llm_semaphore = &llm_semaphore;
         let quota = &quota;
-        let retry_budget = &retry_budget;
         async move {
             review_single_patch(
                 worktree,
@@ -909,7 +905,7 @@ async fn run_worker_in_worktree(
                 baseline_sha,
                 llm_semaphore,
                 quota,
-                retry_budget,
+                timeout_seconds,
                 progress,
             )
             .await

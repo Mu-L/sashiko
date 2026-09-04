@@ -43,11 +43,7 @@ use crate::ai::{AiProvider, AiRequest, AiResponse, CacheStats, ProviderCapabilit
 /// A configuration asking for no parallelism stays fully serial rather than
 /// being widened.
 pub fn llm_permits(concurrency: usize) -> usize {
-    if concurrency < 2 {
-        1
-    } else {
-        concurrency * 3
-    }
+    if concurrency < 2 { 1 } else { concurrency * 3 }
 }
 
 /// Limits concurrent model calls to the permits of a shared semaphore. All
@@ -62,23 +58,6 @@ impl ConcurrencyLimitedProvider {
     /// same pool of permits.
     pub fn new(inner: Arc<dyn AiProvider>, semaphore: Arc<Semaphore>) -> Self {
         Self { inner, semaphore }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_llm_permits_keeps_a_serial_configuration_serial() {
-        // Widening these would defeat the point of asking for no parallelism,
-        // which is what someone does to stay under a provider's limits.
-        assert_eq!(llm_permits(0), 1);
-        assert_eq!(llm_permits(1), 1);
-
-        // Above that, calls are allowed to run wider than the worktrees are.
-        assert_eq!(llm_permits(2), 6);
-        assert_eq!(llm_permits(16), 48);
     }
 }
 
@@ -103,5 +82,22 @@ impl AiProvider for ConcurrencyLimitedProvider {
 
     fn cache_stats(&self) -> Option<CacheStats> {
         self.inner.cache_stats()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_llm_permits_keeps_a_serial_configuration_serial() {
+        // Widening these would defeat the point of asking for no parallelism,
+        // which is what someone does to stay under a provider's limits.
+        assert_eq!(llm_permits(0), 1);
+        assert_eq!(llm_permits(1), 1);
+
+        // Above that, calls are allowed to run wider than the worktrees are.
+        assert_eq!(llm_permits(2), 6);
+        assert_eq!(llm_permits(16), 48);
     }
 }

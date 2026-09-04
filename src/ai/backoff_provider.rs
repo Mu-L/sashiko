@@ -67,18 +67,40 @@ pub trait RetryBudget: Send + Sync {
 /// limit does not consume the caller's budget.
 pub struct DeadlineBudget {
     deadline: Arc<std::sync::Mutex<tokio::time::Instant>>,
+    last_credit_end: std::sync::Mutex<Option<tokio::time::Instant>>,
 }
 
 impl DeadlineBudget {
     pub fn new(deadline: Arc<std::sync::Mutex<tokio::time::Instant>>) -> Self {
-        Self { deadline }
+        Self {
+            deadline,
+            last_credit_end: std::sync::Mutex::new(None),
+        }
     }
 }
 
 impl RetryBudget for DeadlineBudget {
     fn credit_wait(&self, slept: Duration) {
-        let mut d = self.deadline.lock().unwrap();
-        *d += slept;
+        if slept.is_zero() {
+            return;
+        }
+        let now = tokio::time::Instant::now();
+        let sleep_start = now.checked_sub(slept).unwrap_or(now);
+        let mut last_end = self.last_credit_end.lock().unwrap();
+        let effective_start = match *last_end {
+            Some(end) if end > sleep_start => end,
+            _ => sleep_start,
+        };
+        if now > effective_start {
+            let uncredited = now - effective_start;
+            // Filter out sub-millisecond thread scheduling jitter between
+            // concurrent tasks waking from the same rate-limit window.
+            if uncredited >= Duration::from_millis(1) {
+                let mut d = self.deadline.lock().unwrap();
+                *d += uncredited;
+                *last_end = Some(now);
+            }
+        }
     }
 
     fn check(&self) -> Result<()> {
@@ -166,13 +188,16 @@ impl AiProvider for BackoffProvider {
                             let mult = 2.0_f64.powi(transient_streak - 1).min(60.0);
                             let backoff = self.base_delay.mul_f64(mult).max(retry_after);
                             let jittered = backoff + backoff.mul_f64(0.25 * fastrand::f64());
+                            let retry_target = match self.max_attempts {
+                                Some(max) => format!("{attempt}/{max}"),
+                                None => format!("{attempt}"),
+                            };
                             warn!(
-                                "{}Transient AI error (streak {}); backing off {:.1}s then retry {}/{}: {}",
+                                "{}Transient AI error (streak {}); backing off {:.1}s then retry {}: {}",
                                 get_log_prefix(),
                                 transient_streak,
                                 jittered.as_secs_f64(),
-                                attempt,
-                                MAX_ATTEMPTS,
+                                retry_target,
                                 e
                             );
                             sleep(jittered).await;
@@ -353,5 +378,27 @@ mod tests {
             .unwrap();
         assert_eq!(resp.content.as_deref(), Some("ok"));
         assert_eq!(m.calls.load(Ordering::SeqCst), 3); // 2 rate-limit failures + success
+    }
+
+    #[tokio::test]
+    async fn deadline_budget_credit_wait_deduplicates_overlapping_sleeps() {
+        let deadline = Arc::new(std::sync::Mutex::new(
+            tokio::time::Instant::now() + Duration::from_secs(60),
+        ));
+        let budget = DeadlineBudget::new(deadline.clone());
+
+        // First sleep of 10s credits approximately 10s.
+        budget.credit_wait(Duration::from_secs(10));
+        let d1 = *deadline.lock().unwrap();
+
+        // An immediately following call reporting the same 10s sleep should not add another 10s.
+        budget.credit_wait(Duration::from_secs(10));
+        let d2 = *deadline.lock().unwrap();
+        assert_eq!(d1, d2);
+
+        // Zero sleep should not affect deadline.
+        budget.credit_wait(Duration::ZERO);
+        let d3 = *deadline.lock().unwrap();
+        assert_eq!(d2, d3);
     }
 }
