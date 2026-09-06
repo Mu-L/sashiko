@@ -96,7 +96,7 @@ async fn review_requests_use_target_prefetch_or_explicit_failure() {
                 series_range: None,
                 baseline_sha: None,
                 custom_prompt: None,
-                stages: Some(vec![1]),
+                stages: Some(vec!["goal".to_string()]),
             },
         );
         worker
