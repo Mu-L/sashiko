@@ -522,10 +522,13 @@ You MUST respond with ONLY a JSON object, no other text. Use the names exactly a
                 .filter(|d| !d.optional)
                 .map(|d| d.name.to_string())
                 .collect();
-            for name in out.relevant_stages {
-                let optional = analysis_stage_by_name(&name).is_some_and(|d| d.optional);
-                if optional && !stages.contains(&name) {
-                    stages.push(name);
+            for raw_name in out.relevant_stages {
+                if let Some(def) = analysis_stage_by_name(&raw_name) {
+                    if def.optional && !stages.iter().any(|s| s == def.name) {
+                        stages.push(def.name.to_string());
+                    }
+                } else {
+                    tracing::warn!("Ignoring unknown planned review stage {:?}", raw_name);
                 }
             }
             state.planned_stages = stages;
@@ -702,11 +705,21 @@ fn with_series_context(
     })
 }
 
+fn normalize_stage_name(name: &str) -> String {
+    let lower = name.trim().to_ascii_lowercase().replace('_', "-");
+    if let Some(stripped) = lower.strip_prefix("stage-") {
+        stripped.to_string()
+    } else {
+        lower
+    }
+}
+
 pub fn consolidation_stage_by_name(name: &str) -> Option<&'static ConsolidationStage> {
+    let normalized = normalize_stage_name(name);
     CONSOLIDATION_STAGES
         .iter()
         .copied()
-        .find(|s| s.name == name)
+        .find(|s| s.name == normalized)
 }
 
 /// Display label for any stage the pipeline runs.
@@ -732,15 +745,17 @@ pub fn is_stage_exclusive_guide(name: &str) -> bool {
 }
 
 pub fn analysis_stage_by_name(name: &str) -> Option<&'static AnalysisStage> {
-    ANALYSIS_STAGES.iter().find(|s| s.name == name)
+    let normalized = normalize_stage_name(name);
+    ANALYSIS_STAGES.iter().find(|s| s.name == normalized)
 }
 
 /// Every stage name a review can produce, analysis and consolidation alike,
 /// for validating what a caller or the planner asked for.
 pub fn is_known_stage(name: &str) -> bool {
-    analysis_stage_by_name(name).is_some()
-        || CONSOLIDATION_STAGES.iter().any(|s| s.name == name)
-        || matches!(name, "pre-screen" | "planning")
+    let normalized = normalize_stage_name(name);
+    analysis_stage_by_name(&normalized).is_some()
+        || consolidation_stage_by_name(&normalized).is_some()
+        || matches!(normalized.as_str(), "pre-screen" | "planning")
 }
 
 fn analysis_stage(
@@ -1253,6 +1268,71 @@ mod tests {
         } else {
             panic!("expected planning stage to use json_with_schema");
         }
+    }
+
+    #[test]
+    fn test_stage_lookup_normalizes_casing_and_separators() {
+        assert_eq!(
+            analysis_stage_by_name("Locking").map(|d| d.name),
+            Some("locking")
+        );
+        assert_eq!(
+            analysis_stage_by_name(" locking ").map(|d| d.name),
+            Some("locking")
+        );
+        assert_eq!(
+            analysis_stage_by_name("stage_locking").map(|d| d.name),
+            Some("locking")
+        );
+        assert_eq!(
+            analysis_stage_by_name("stage-locking").map(|d| d.name),
+            Some("locking")
+        );
+        assert_eq!(
+            analysis_stage_by_name("execution_flow").map(|d| d.name),
+            Some("execution-flow")
+        );
+        assert_eq!(
+            analysis_stage_by_name("EXECUTION_FLOW").map(|d| d.name),
+            Some("execution-flow")
+        );
+        assert_eq!(
+            consolidation_stage_by_name("Conflict_Resolution").map(|d| d.name),
+            Some("conflict-resolution")
+        );
+        assert_eq!(
+            consolidation_stage_by_name("stage-verification").map(|d| d.name),
+            Some("verification")
+        );
+        assert!(is_known_stage("Locking"));
+        assert!(is_known_stage("execution_flow"));
+        assert!(is_known_stage("stage_report"));
+    }
+
+    #[test]
+    fn test_planning_stage_reduce_normalizes_and_canonicalizes() {
+        let stage = planning_stage();
+        let mut state = KernelReviewState::default();
+        let output = PlanningOutput {
+            relevant_stages: vec![
+                "Locking".to_string(),
+                "stage_resources".to_string(),
+                "  security  ".to_string(),
+                "nonexistent_stage".to_string(),
+            ],
+        };
+        (stage.reducer)(&mut state, output);
+        assert_eq!(
+            state.planned_stages,
+            vec![
+                "goal",
+                "implementation",
+                "execution-flow",
+                "locking",
+                "resources",
+                "security"
+            ]
+        );
     }
 
     #[test]
