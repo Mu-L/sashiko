@@ -609,10 +609,23 @@ impl Worker {
         }
 
         let worktree_path = self.tools.get_worktree_path();
-        let prefetched_context =
-            crate::worker::prefetch::prefetch_context(worktree_path, &target_commit_diff)
-                .await
-                .unwrap_or_default();
+        let (prefetched_context, prefetch_failed) = match crate::worker::prefetch::prefetch_context(
+            worktree_path,
+            &target_commit_sha,
+            &target_commit_diff,
+        )
+        .await
+        {
+            Ok(context) => (context, false),
+            Err(error) => {
+                tracing::warn!(
+                    target_commit = %target_commit_sha,
+                    %error,
+                    "Source prefetch failed; review must retrieve context with Git tools"
+                );
+                (String::new(), true)
+            }
+        };
 
         let follow_up_series_context = build_follow_up_series_context(
             self.series_range.as_deref(),
@@ -628,6 +641,7 @@ impl Worker {
             target_commit_diff,
             target_commit_diff_only,
             prefetched_context,
+            prefetch_failed,
             series_range: self.series_range.clone(),
             follow_up_series_context,
             selected_guides: Vec::new(),
@@ -924,6 +938,9 @@ fn normalize_stage_item(
         })
     }
 }
+
+#[cfg(test)]
+mod prefetch_tests;
 
 #[cfg(test)]
 mod tests {

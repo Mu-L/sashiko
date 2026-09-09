@@ -42,6 +42,8 @@ pub struct KernelReviewState {
     pub target_commit_diff: String,
     pub target_commit_diff_only: String,
     pub prefetched_context: String,
+    /// Source prefetch failed; stages must gather target context through Git tools.
+    pub prefetch_failed: bool,
     pub series_range: Option<String>,
     pub follow_up_series_context: Option<String>,
 
@@ -150,11 +152,16 @@ Target Commit:
     .with_var("target_commit_diff", |s: &KernelReviewState| s.target_commit_diff.clone())
     .with_var("target_commit_diff_only", |s: &KernelReviewState| s.target_commit_diff_only.clone())
     .with_var("prefetched_block", |s: &KernelReviewState| {
-        if s.prefetched_context.is_empty() {
+        if s.prefetch_failed {
+            format!(
+                "\n\nAutomatic source prefetch failed for target commit {}. Before analyzing the code, use git_read_files and git_grep at that revision to gather the source context. Do not infer source contents from the physical checkout.\n",
+                s.target_commit_sha
+            )
+        } else if s.prefetched_context.is_empty() {
             String::new()
         } else {
             format!(
-                "\n\n<pre_fetched_context>\nThe following context was automatically pre-fetched based on the modified lines in the patch. It contains the full source code of the functions and structs modified by the diff AFTER applying the target patch.\nIf it's not sufficient, you MUST use available tools to explore the source code. Don't make assumptions without actually looking into the relevant code.\n\n{}\n</pre_fetched_context>",
+                "\n\n<pre_fetched_context>\nThe following source excerpts were fetched from the target commit identified by Source revision below, based on the modified lines in the patch. They include modified definitions and selected dependencies. Parent and series-final revisions must be inspected separately with Git tools.\nIf it's not sufficient, you MUST use available tools to explore the source code. Don't make assumptions without actually looking into the relevant code.\n\n{}\n</pre_fetched_context>",
                 s.prefetched_context
             )
         }
