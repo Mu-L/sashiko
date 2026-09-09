@@ -472,6 +472,12 @@ pub fn prescreen_stage() -> Stage<KernelReviewState, PrescreenOutput> {
 }
 
 pub fn planning_stage() -> Stage<KernelReviewState, PlanningOutput> {
+    let optional_stages: Vec<&'static str> = ANALYSIS_STAGES
+        .iter()
+        .filter(|d| d.optional)
+        .map(|d| d.name)
+        .collect();
+
     Stage::builder("planning")
         .system_prompt(kernel_system_prompt(true))
         .user_prompt(PromptTemplate::<KernelReviewState>::new(
@@ -493,7 +499,10 @@ You MUST respond with ONLY a JSON object, no other text. Use the names exactly a
             "properties": {
                 "relevant_stages": {
                     "type": "array",
-                    "items": { "type": "string" }
+                    "items": {
+                        "type": "string",
+                        "enum": optional_stages,
+                    }
                 }
             },
             "required": ["relevant_stages"]
@@ -1219,6 +1228,31 @@ mod tests {
             .map(|d| d.name)
             .collect();
         assert_eq!(required, ["goal", "implementation", "execution-flow"]);
+    }
+
+    #[test]
+    fn test_planning_stage_schema_restricts_to_optional_stages() {
+        if let OutputFormat::Json {
+            schema: Some(ref s),
+            ..
+        } = planning_stage().output_format
+        {
+            let items_enum = s["properties"]["relevant_stages"]["items"]["enum"]
+                .as_array()
+                .expect("enum array in schema");
+            let names: Vec<&str> = items_enum
+                .iter()
+                .map(|v| v.as_str().expect("string enum value"))
+                .collect();
+            let optional: Vec<&str> = ANALYSIS_STAGES
+                .iter()
+                .filter(|d| d.optional)
+                .map(|d| d.name)
+                .collect();
+            assert_eq!(names, optional);
+        } else {
+            panic!("expected planning stage to use json_with_schema");
+        }
     }
 
     #[test]
