@@ -314,4 +314,101 @@ mod tests {
         assert_eq!(normalized["temperature"].as_f64(), Some(0.75));
         assert_eq!(normalized["temperature"].as_u64(), None);
     }
+
+    #[test]
+    fn test_glob_to_regex() {
+        // Group A: * wildcard
+        // * matches zero or more characters.
+        let re = glob_to_regex("*.c").unwrap();
+        assert!(re.is_match("foo.c"), "* matches one or more characters");
+        assert!(re.is_match(".c"), "* matches zero characters");
+        assert!(!re.is_match("foo.rs"), "* does not match wrong extension");
+
+        // Group B: ? wildcard
+        // ? matches exactly one character.
+        let re = glob_to_regex("fo?.c").unwrap();
+        assert!(re.is_match("foo.c"), "? matches exactly one character");
+        assert!(!re.is_match("fooo.c"), "? does not match two characters");
+        assert!(!re.is_match("fo.c"), "? does not match zero characters");
+
+        // Group C: regex metacharacter escaping
+        // . must be a literal dot, not the regex wildcard.
+        let re = glob_to_regex("file.c").unwrap();
+        assert!(re.is_match("file.c"), ". matches literal dot");
+        assert!(!re.is_match("fileXc"), ". is not treated as regex wildcard");
+
+        // + must be a literal plus, not a quantifier.
+        let re = glob_to_regex("a+b").unwrap();
+        assert!(re.is_match("a+b"), "+ matches literal plus");
+        assert!(!re.is_match("ab"), "+ is not treated as regex quantifier");
+        assert!(
+            !re.is_match("aab"),
+            "+ is not treated as one-or-more quantifier"
+        );
+
+        // ( and ) must be literal parens, not group delimiters.
+        let re = glob_to_regex("a(b").unwrap();
+        assert!(re.is_match("a(b"), "( matches literal open paren");
+        assert!(!re.is_match("ab"), "( is not dropped as a group opener");
+
+        let re = glob_to_regex("a)b").unwrap();
+        assert!(re.is_match("a)b"), ") matches literal close paren");
+        assert!(!re.is_match("ab"), ") is not dropped as a group closer");
+
+        // [ must be escaped; an unescaped [ would produce an invalid regex.
+        let re = glob_to_regex("a[b").unwrap();
+        assert!(re.is_match("a[b"), "[ matches literal open bracket");
+        assert!(
+            !re.is_match("ab"),
+            "[ is not treated as character class opener"
+        );
+
+        // ] must be a literal bracket.
+        let re = glob_to_regex("a]b").unwrap();
+        assert!(re.is_match("a]b"), "] matches literal close bracket");
+        assert!(!re.is_match("ab"), "] is not dropped");
+
+        // | must be a literal pipe, not alternation.
+        let re = glob_to_regex("a|b").unwrap();
+        assert!(re.is_match("a|b"), "| matches literal pipe");
+        assert!(
+            !re.is_match("a"),
+            "| is not treated as alternation (left side)"
+        );
+        assert!(
+            !re.is_match("b"),
+            "| is not treated as alternation (right side)"
+        );
+
+        // ^ must be a literal caret, not a negation or extra anchor.
+        let re = glob_to_regex("a^b").unwrap();
+        assert!(re.is_match("a^b"), "^ matches literal caret");
+        assert!(!re.is_match("ab"), "^ is not dropped");
+
+        // $ must be a literal dollar sign, not an extra end anchor.
+        let re = glob_to_regex("a$b").unwrap();
+        assert!(re.is_match("a$b"), "$ matches literal dollar sign");
+        assert!(!re.is_match("ab"), "$ is not treated as end anchor");
+
+        // \ must be a literal backslash.
+        let re = glob_to_regex(r"a\b").unwrap();
+        assert!(re.is_match(r"a\b"), r"\ matches literal backslash");
+        assert!(!re.is_match("ab"), r"\ is not dropped");
+
+        // Group D: anchoring
+        // The pattern must match the entire string, not a substring.
+        let re = glob_to_regex("foo").unwrap();
+        assert!(re.is_match("foo"), "exact match works");
+        assert!(!re.is_match("barfoo"), "^ anchor rejects a leading prefix");
+        assert!(!re.is_match("foobar"), "$ anchor rejects a trailing suffix");
+
+        // Group E: empty pattern
+        // An empty glob compiles to ^$ and matches only the empty string.
+        let re = glob_to_regex("").unwrap();
+        assert!(re.is_match(""), "empty pattern matches empty string");
+        assert!(
+            !re.is_match("a"),
+            "empty pattern does not match non-empty string"
+        );
+    }
 }
