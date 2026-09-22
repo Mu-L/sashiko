@@ -472,7 +472,8 @@ impl BaselineRegistry {
 
         let mut scored_candidates: Vec<(i32, BaselineResolution)> = Vec::new();
 
-        for ((url, branch), count) in candidates {
+        for (candidate_tree, count) in candidates {
+            let (url, branch) = candidate_tree;
             let mut score = (*count as i32) * 10;
             let url_lower = url.to_lowercase();
             let branch_lower = branch
@@ -528,12 +529,12 @@ impl BaselineRegistry {
             let keywords = [
                 "net", "bpf", "drm", "mm", "sched", "x86", "arm", "arm64", "scsi", "usb", "perf",
             ];
+            let cand_subsys = tree_subsystems.get(candidate_tree);
             for kw in keywords {
                 let url_matches = url_lower.contains(kw);
                 let branch_matches = branch_lower.contains(kw);
                 let subject_or_subsys_matches = subject_lower.contains(kw)
-                    || matched_subsystem_name
-                        .as_deref()
+                    || cand_subsys
                         .map(|s| s.to_lowercase().contains(kw))
                         .unwrap_or(false);
 
@@ -971,19 +972,19 @@ F: patterns/
         let candidates = registry.resolve_candidates(&files, "Subject", None).await;
 
         for candidate in &candidates {
-            if let BaselineResolution::RemoteTarget { url, branch, .. } = candidate {
-                if url == &net_url {
-                    assert_ne!(
-                        branch.as_deref(),
-                        Some("staging-testing"),
-                        "net_url must not be resolved with a staging branch"
-                    );
-                    assert_ne!(
-                        branch.as_deref(),
-                        Some("staging-next"),
-                        "net_url must not be resolved with a staging branch"
-                    );
-                }
+            if let BaselineResolution::RemoteTarget { url, branch, .. } = candidate
+                && url == &net_url
+            {
+                assert_ne!(
+                    branch.as_deref(),
+                    Some("staging-testing"),
+                    "net_url must not be resolved with a staging branch"
+                );
+                assert_ne!(
+                    branch.as_deref(),
+                    Some("staging-next"),
+                    "net_url must not be resolved with a staging branch"
+                );
             }
         }
     }
