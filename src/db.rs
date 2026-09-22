@@ -891,7 +891,7 @@ pub struct MarkDuplicateBugParams<'a> {
 /// The default is the empty scope rather than everything: a caller that forgets
 /// to say what the principal may see gets nothing back, so widening access has
 /// to be written down deliberately.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BugVisibility<'a> {
     /// Every bug. For Sashiko operators, the kernel security list, and
     /// maintainers of a section that claims the whole tree.
