@@ -256,13 +256,36 @@ impl<S> PromptTemplate<S> {
         out
     }
 
+    /// Replaces each `{{key}}` in `text` with its variable's value in a single
+    /// pass over the template. A value is inserted as it is and never scanned
+    /// again, so a diff or cover letter that contains another variable's
+    /// placeholder keeps it as text. Placeholders with no bound variable are
+    /// left in place.
     fn substitute_vars(&self, text: &str, state: &S) -> String {
-        let mut text = text.to_string();
-        for (key, extractor) in &self.vars {
-            let pattern = format!("{{{{{}}}}}", key);
-            text = text.replace(&pattern, &extractor(state));
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(pos) = rest.find("{{") {
+            out.push_str(&rest[..pos]);
+            let candidate = &rest[pos..];
+            let bound = self.vars.iter().find_map(|(key, extractor)| {
+                let body = candidate.strip_prefix("{{")?.strip_prefix(key.as_str())?;
+                body.strip_prefix("}}").map(|after| (extractor, after))
+            });
+            match bound {
+                Some((extractor, after)) => {
+                    out.push_str(&extractor(state));
+                    rest = after;
+                }
+                None => {
+                    // Not a bound placeholder: keep one brace and look again
+                    // from the next character, so "{{{key}}}" still binds.
+                    out.push('{');
+                    rest = &candidate[1..];
+                }
+            }
         }
-        text
+        out.push_str(rest);
+        out
     }
 }
 
@@ -295,6 +318,33 @@ mod tests {
 
         assert_eq!(rendered_model, "Patch diff:\n+int x = 42;");
         assert_eq!(rendered_log, "Patch diff:\n+int x = 42;");
+    }
+
+    #[tokio::test]
+    async fn test_a_variable_value_is_not_substituted_again() {
+        // The diff is inserted before later placeholders in the template are
+        // reached. A diff that happens to contain one of them must keep it as
+        // text rather than pick up that variable's value.
+        let state = TestState {
+            diff: "+/* {{note}} and {{diff}} and {{unbound}} */".to_string(),
+            extra_guides: vec![],
+        };
+
+        let template =
+            PromptTemplate::<TestState>::new("{{diff}}\n{{note}} {{unbound}} {{{note}}}")
+                .with_var("diff", |s| s.diff.clone())
+                .with_var("note", |_| "NOTE".to_string());
+
+        let temp_dir = tempdir().unwrap();
+        let expected = "+/* {{note}} and {{diff}} and {{unbound}} */\nNOTE {{unbound}} {NOTE}";
+        assert_eq!(
+            template
+                .render_for_model(&state, temp_dir.path())
+                .await
+                .unwrap(),
+            expected
+        );
+        assert_eq!(template.render_for_log(&state), expected);
     }
 
     #[tokio::test]
